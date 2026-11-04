@@ -101,3 +101,8 @@ V `engine.js`: `EVENTS` (události), `ASSETS` (podniky, výnosy a rizika), `BASE
 ### Vizuál – 5. kolo (zelený fintech styl)
 - Tmavě zelené přechody s limetkovým akcentem, skleněné karty, velké zaoblení, pilulková tlačítka, font **Plus Jakarta Sans** (SIL Open Font License, uložen lokálně v `lib/fonts/`, takže funguje i offline).
 - Barvy jsou tokeny na začátku `style.css` (`--lime`, `--bg`, `--panel`…), změna palety je otázka pár řádků.
+
+### Minimalistický redesign – 6. kolo
+- Rozhodování na telefonu: nahoře vždy vidět hotovost, pak jen **tvoje oblast** (ostatní role jsou sbalené a jde u nich jen „💬 Navrhnout“), kratší popisy, méně tlačítek.
+- Plochý, klidný vzhled: méně rámečků a ozdob, limetková jen pro peníze a hlavní akci, zašedlé nedostupné akce.
+- Úvodní stránka zkrácena na to podstatné (hlavní akce, 4 kroky, 3 přínosy).
