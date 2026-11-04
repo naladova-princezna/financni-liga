@@ -104,7 +104,7 @@ const POJMY1 = [
   ['Tvrzení „Každé prvočíslo je liché“ vyvrátíme protipříkladem:', 'číslo 2', ['číslo 3', 'číslo 9', 'číslo 15']],
 ];
 const POJMY2 = [
-  ['Platí-li věta „A ⇒ B“, je A vzhledem k B…', 'postačující podmínka', ['nutná podmínka', 'nutná i postačující podmínka', 'vyvrácená podmínka']],
+  ['Platí-li věta „A ⇒ B“, je A vzhledem k B…', 'postačující podmínka', ['nutná podmínka', 'nutná i postačující podmínka', 'ani nutná, ani postačující podmínka']],
   ['Platí-li věta „A ⇒ B“, je B vzhledem k A…', 'nutná podmínka', ['postačující podmínka', 'nutná i postačující podmínka', 'obměna']],
   ['Věta „A ⇔ B“ říká, že A je pro B…', 'nutná i postačující podmínka', ['pouze nutná podmínka', 'pouze postačující podmínka', 'ani nutná, ani postačující podmínka']],
   ['Důkaz, v němž předpokládáme, že tvrzení neplatí, a dojdeme ke sporu, je…', 'důkaz sporem', ['přímý důkaz', 'důkaz obměnou', 'důkaz protipříkladem']],
@@ -454,8 +454,11 @@ reg('vyrazy', 3, 'součin zlomků', () => {
 reg('vyrazy', 3, 'odmocnina z čtverce', () => {
   const k = nz(-6, 6); const kind = pick([0, 1]);
   if (kind === 0) return mc(`Zjednodušte pro x < 0: √(x²)`, MINUS + 'x', ['x', 'x²', MINUS + 'x²', '|x| + x'], `√(x²) = |x|, a pro x < 0 je |x| = −x.`);
-  return mc(`Zjednodušte pro x < ${N(k)}: √((x ${k < 0 ? '+ ' + (-k) : MINUS + ' ' + k})²)`, k < 0 ? `${-k} ${MINUS} x`.replace(/^(\d+) − x$/, `${N(-k)} ${MINUS} x`).replace(/^/, '') : `${k} ${MINUS} x`,
-    [k < 0 ? `x + ${-k}` : `x ${MINUS} ${k}`, `x + ${Math.abs(k)}`, `${MINUS}x ${MINUS} ${Math.abs(k)}`], `√(A²) = |A|; pro x < ${N(k)} je výraz v závorce záporný, proto |A| = −A.`);
+  const A = Math.abs(k);
+  // k>0: výraz (x − k)², x < k  → k − x ;  k<0: výraz (x + |k|)², x < −|k| → −x − |k|
+  const good = k > 0 ? `${k} ${MINUS} x` : `${MINUS}x ${MINUS} ${A}`;
+  const bad = k > 0 ? [`x ${MINUS} ${k}`, `x + ${k}`, `${MINUS}x ${MINUS} ${k}`] : [`x + ${A}`, `${A} ${MINUS} x`, `x ${MINUS} ${A}`];
+  return mc(`Zjednodušte pro x < ${N(k)}: √((x ${k < 0 ? '+ ' + A : MINUS + ' ' + k})²)`, good, bad, `√(A²) = |A|; pro x < ${N(k)} je výraz v závorce záporný, proto |A| = −A.`);
 });
 
 /* =====================  7. ROVNICE A NEROVNICE  ===================== */

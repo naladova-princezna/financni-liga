@@ -13,7 +13,7 @@ const ROLE = Object.fromEntries(E.ROLES.map((r, i) => [r.key, { ...r, idx: i }])
 const PHASE_TXT = { lobby: 'Čekárna', event: 'Událost roku', work: 'Práce', decide: 'Rozhodování', result: 'Vyúčtování', final: 'Konec hry' };
 
 const Player = {
-  code: '', token: '', name: '', peer: null, conn: null, S: null, offset: 0, gen: 0, connected: false, lastMsg: 0, status: '', tab: 'game', ui: { creating: false, emoji: E.TEAM_EMOJI[0] }, _sig: '', pending: false,
+  code: '', token: '', name: '', peer: null, conn: null, S: null, offset: 0, gen: 0, connected: false, lastMsg: 0, status: '', tab: 'game', ui: { creating: false, emoji: E.TEAM_EMOJI[0] }, _sig: '', pending: false, helped: {},
 
   init(code) {
     this.code = code;
@@ -89,6 +89,9 @@ const Player = {
       case 'skip': this.send({ t: 'task:skip' }); break;
       case 'next': this.send({ t: 'task:next' }); break;
       case 'act': this.send({ t: 'act', a: d.act, arg: d.arg }); break;
+      case 'ready': this.send({ t: 'ready' }); break;
+      case 'help': this.helped[d.k] = 1; LS.set('fl_help_' + d.k, '1'); this._sig = ''; this.render(); break;
+      case 'suggest': this.send({ t: 'suggest', k: d.k }); break;
       case 'tab': this.tab = d.tab; this.render(); break;
     }
   },
@@ -96,7 +99,8 @@ const Player = {
   /* ---------- vykreslování ---------- */
   tick() {
     const S = this.S, el = $('#ph-timer'); if (!S || !el) return;
-    if (!S.endsAt) { el.textContent = ''; return; }
+    if (!S.endsAt && !S.paused) { el.textContent = ''; return; }
+    if (S.paused) { el.textContent = '⏸ pauza'; return; }
     const left = S.endsAt - (Date.now() + this.offset); el.textContent = '⏱ ' + Net.fmtTime(left); el.classList.toggle('warn', left < 30000);
   },
   render() {
@@ -119,9 +123,10 @@ const Player = {
     if (!t) return base + (this.ui.creating ? '|create' : JSON.stringify(S.teams));
     switch (S.phase) {
       case 'lobby': return base + JSON.stringify(S.teams);
-      case 'work': return base + '|' + (S.task ? S.task.id : '-') + '|' + (S.res ? S.res.id : '-') + '|' + S.me.diff + '|' + t.train;
-      case 'decide': return base + JSON.stringify([t.money, t.savings, t.loan, t.assets, t.train, t.insured, S.me.role, t.members.length]);
+      case 'work': return base + '|' + !!S.paused + '|' + S.diffs + '|' + S.teams.map(x => x.net) + '|' + (S.task ? S.task.id : '-') + '|' + (S.res ? S.res.id : '-') + '|' + S.me.diff + '|' + t.train;
+      case 'decide': return base + JSON.stringify([t.money, t.savings, t.loan, t.assets, t.train, t.insured, S.me.role, t.members.length, t.sugg, t.log.length, t.ready]);
       case 'result': return base + JSON.stringify([t.last, S.teams.map(x => x.net)]);
+      case 'event': return base + '|' + (LS.get('fl_help_event') || this.helped.event ? 1 : 0);
       case 'final': return base + JSON.stringify(S.final);
       default: return base;
     }
@@ -130,7 +135,7 @@ const Player = {
     const S = this.S, t = S.team; const el = $('#ph-top');
     const html = t ? `<div class="ph-top" style="--c:${t.color}"><div class="ph-team">${t.emoji} <b>${esc(t.name)}</b></div><div class="ph-money">💵 ${kc(t.money)}</div></div><div class="ph-sub"><span>${S.phase === 'lobby' ? 'Čekárna' : `Rok ${S.year}/${S.years} · ${PHASE_TXT[S.phase]}`}</span><span id="ph-timer" class="ph-timer"></span></div>`
       : `<div class="ph-top"><div class="ph-team">👋 <b>${esc(S.me.name)}</b></div><div class="ph-money mut">hra ${esc(S.code)}</div></div>`;
-    if (el._h !== html) { el._h = html; el.innerHTML = html; }
+    if (el._h !== html) { el._h = html; el.innerHTML = html; if (t) { if (this._m != null && t.money !== this._m) { const mm = el.querySelector('.ph-money'); if (mm) mm.classList.add(t.money > this._m ? 'flash-up' : 'flash-down'); } this._m = t.money; } }
   },
   paintTabs() {
     const S = this.S, el = $('#ph-tabs'); if (!S.team) { el.innerHTML = ''; return; }
@@ -177,8 +182,10 @@ const Player = {
   gameHtml() {
     const S = this.S, t = S.team;
     if (!t || S.phase === 'lobby') return this.lobbyHtml();
+    const hc = (k, html) => (S.year === 1 && !this.helped[k] && !LS.get('fl_help_' + k)) ? `<div class="card help"><b>💡 Jak na to</b>${html}<button class="btn sm" data-a="help" data-k="${k}">Rozumím</button></div>` : '';
+    this._hc = hc;
     switch (S.phase) {
-      case 'event': return `${this.evCard(S)}${this.roleCard(S)}<div class="card"><p>👀 Přečtěte si událost a <b>domluvte se v týmu</b>, co to pro vás znamená. Učitel brzy zahájí práci.</p></div>`;
+      case 'event': return `${hc('event', '<p>Každý rok začíná <b>událostí</b>, která mění pravidla (úroky, daně, výnosy). Pak <b>řešíte příklady</b> = vyděláváte, a nakonec se tým <b>společně rozhodne</b>, co s penězi.</p>')}${this.evCard(S)}${this.roleCard(S)}<div class="card"><p>👀 Přečtěte si událost a <b>domluvte se v týmu</b>, co to pro vás znamená. Učitel brzy zahájí práci.</p></div>`;
       case 'work': return this.workHtml();
       case 'decide': return this.decideHtml();
       case 'result': return this.resultHtml();
@@ -186,25 +193,37 @@ const Player = {
     }
     return '';
   },
-  reward(d) { const S = this.S; return Math.round(E.BASE[d] * (1 + E.TRAIN_BONUS * S.team.train) * ((S.event && S.event.rew) || 1) / 10) * 10; },
+  reward(d, task) { const S = this.S, f = task && task.type === 'mc' && task.choices.length === 2 ? .5 : 1; return Math.round(f * E.BASE[d] * (1 + E.TRAIN_BONUS * S.team.train) * ((S.event && S.event.rew) || 1) / 10) * 10; },
+  rankHtml(S) {
+    const me = S.team; if (!me || S.teams.length < 2) return '';
+    const sorted = [...S.teams].sort((a, b) => b.net - a.net), lead = sorted[0];
+    const i = sorted.filter(x => x.net > me.net).length; // shodné jmění = sdílené pořadí
+    if (sorted.every(x => x.net === lead.net)) return '<div class="rank">🏁 Všichni jste zatím vyrovnaní – rozhodnou příklady!</div>';
+    const rest = sorted.filter(x => x.id !== me.id), gap = i === 0 ? me.net - Math.max(...rest.map(x => x.net)) : lead.net - me.net;
+    return `<div class="rank ${i === 0 ? 'first' : ''}">🏁 <b>${i + 1}. místo z ${sorted.length}</b> · ${i === 0 ? 'vedete o ' + kc(gap) : 'ztráta na ' + lead.emoji + ' ' + esc(lead.name) + ': ' + kc(gap)}</div>`;
+  },
   workHtml() {
     const S = this.S, task = S.task, res = S.res;
+    const hw = this._hc ? this._hc('work', '<p>Vyber obtížnost: čím těžší úloha, tím víc vyděláš, ale chyba stojí pokutu. Počítej na papír. Peníze jdou celému týmu.</p>') : '';
+    if (S.paused) return '<div class="card center-t"><div class="big-e">⏸</div><h2>Pauza</h2><p class="mut">Učitel hru pozastavil. Za chvíli pokračujeme.</p></div>';
+    const rk = this.rankHtml(S);
     if (task) {
       const tp = TOPIC[task.topic] || { emoji: '📐', name: '' };
       let ans;
       if (task.type === 'mc') ans = `<div class="choices">${task.choices.map((c, i) => `<button class="choice" data-a="ans" data-i="${i}"><span class="ci">${'ABCD'[i]}</span><span class="ct">${c}</span></button>`).join('')}</div>`;
       else ans = `<div class="numans"><input id="numIn" type="text" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tvoje odpověď"><div class="keys">${['−', '/', ','].map(k => `<button data-a="key" data-k="${k === '−' ? '-' : k}">${k}</button>`).join('')}</div><button id="subBtn" class="btn big" data-a="submit">Odeslat odpověď</button></div>${task.hint ? `<p class="mut small">${esc(task.hint)}</p>` : ''}`;
-      return `<div class="card task"><div class="tk-h"><span class="chip2">${tp.emoji} ${tp.name}</span><span class="dchip d${task.diff}">${DIFF[task.diff].e} +${this.reward(task.diff)} Kč</span></div><div class="q">${task.q}</div>${ans}<button class="link" data-a="skip">Přeskočit (−${E.SKIP_FEE} Kč)</button></div>`;
+      return `${rk}<div class="card task"><div class="tk-h"><span class="chip2">${task.review ? '🔁 Procvičení · ' : ''}${tp.emoji} ${tp.name}</span><span class="dchip d${task.diff}">${DIFF[task.diff].e} +${this.reward(task.diff, task)} Kč</span></div><div class="q">${task.q}</div>${ans}<button class="link" data-a="skip">Přeskočit (−${E.SKIP_FEE} Kč)</button></div>`;
     }
     if (res) {
-      return `<div class="card res ${res.ok ? 'ok' : 'bad'}"><div class="res-h">${res.ok ? '✅ Správně!' : '❌ Chyba'}</div><div class="qecho">${res.q}</div>
+      return `${rk}<div class="card res ${res.ok ? 'ok' : 'bad'}"><div class="res-h">${res.ok ? '✅ Správně!' : '❌ Chyba'}</div><div class="qecho">${res.q}</div>
         <div class="res-m">${res.ok ? `+${kc(res.reward)}${res.bonus ? ` <span class="bonus">🔥 série +${kc(res.bonus)}</span>` : ''}` : (res.pen ? `−${kc(res.pen)}` : 'Bez pokuty')}</div>
         ${res.ok ? '' : `<div class="correct">Správná odpověď: <b>${res.ansText}</b></div>`}${res.expl ? `<div class="expl">💡 ${res.expl}</div>` : ''}
+        ${res.tip ? `<div class="tip">${res.tip}</div>` : ''}
         ${S.me.streak ? `<div class="streak">🔥 Série: ${S.me.streak}${S.me.streak % E.STREAK_EVERY ? ` (ještě ${E.STREAK_EVERY - S.me.streak % E.STREAK_EVERY} do bonusu)` : ''}</div>` : ''}
         <button class="btn big" data-a="next">Další úloha →</button></div>`;
     }
-    return `<div class="card"><h2>Vyber si úlohu</h2><p class="mut">Čím těžší úloha, tím víc vyděláš – ale chyba stojí peníze.</p>
-      <div class="diffs">${[1, 2, 3].map(d => `<button class="diff d${d} ${S.me.diff === d ? 'last' : ''}" data-a="get" data-d="${d}"><span class="dn">${DIFF[d].e} ${DIFF[d].n}</span><span class="dr">+${this.reward(d)} Kč</span><span class="dp">${E.PEN[d] ? 'chyba −' + E.PEN[d] + ' Kč' : 'chyba bez pokuty'}</span></button>`).join('')}</div>
+    return `${hw}${rk}<div class="card"><h2>Vyber si úlohu</h2><p class="mut">Čím těžší úloha, tím víc vyděláš – ale chyba stojí peníze.</p>
+      <div class="diffs">${[1, 2, 3].filter(d => S.diffs.includes(d)).map(d => `<button class="diff d${d} ${S.me.diff === d ? 'last' : ''}" data-a="get" data-d="${d}"><span class="dn">${DIFF[d].e} ${DIFF[d].n}</span><span class="dr">+${this.reward(d)} Kč</span><span class="dp">${E.PEN[d] ? 'chyba −' + E.PEN[d] + ' Kč' : 'chyba bez pokuty'}</span></button>`).join('')}</div>
       <p class="mut small">🔥 Každá ${E.STREAK_EVERY}. správná odpověď v řadě = bonus ${kc(E.STREAK_BONUS)}. Společně vyděláváte pro tým${S.team.train ? ` · 🎓 školení +${Math.round(E.TRAIN_BONUS * S.team.train * 100)} %` : ''}.</p>
       <div class="mini">✅ ${S.me.correct} · ❌ ${S.me.wrong} · vydělal/a jsi ${kc(S.me.earned)}</div></div>`;
   },
@@ -214,21 +233,24 @@ const Player = {
     const can = key => { const i = ROLE[key].idx; return myIdx === i || t.members.length <= i; };
     const who = key => { const i = ROLE[key].idx; const m = t.members[i]; return m ? esc(m.name) : ''; };
     const lock = key => can(key) ? `<span class="you">tvoje oblast</span>` : `<span class="lockd">🔒 rozhoduje ${ROLE[key].emoji} ${who(key)}</span>`;
+    const sg = k => { const a = t.sugg[k] || []; return `<button class="sugg ${a.includes(me.name) ? 'on' : ''}" data-a="suggest" data-k="${k}" title="Navrhnout týmu">💬${a.length ? a.length : ''}</button>`; };
     const btn = (label, act, arg, ok, cls = '') => `<button class="btn sm ${cls}" data-a="act" data-act="${act}" data-arg="${arg}" ${ok ? '' : 'disabled'}>${label}</button>`;
     const ceo = can('ceo'), cfo = can('cfo'), adm = can('adm');
-    const assets = E.ASSETS.map(a => { const o = t.assets[a.id], price = pr.assets[a.id]; return `<div class="arow"><div class="ai">${a.emoji}</div><div class="ab"><b>${a.name}</b><div class="mut small">${a.desc} Očekávaný výnos ~${Math.round(a.mean * 100)} % ročně, riziko ${a.risk}.</div><div class="mut small">Vlastníte: <b>${o.n}</b>${o.n ? ` (hodnota ${kc(o.value)})` : ''}</div></div><div class="aa">${btn('Koupit<br>' + kc(price), 'buy', a.id, ceo && t.money >= price)}${btn('Prodat', 'sell', a.id, ceo && o.n > 0, 'ghost')}</div></div>`; }).join('');
+    const assets = E.ASSETS.map(a => { const o = t.assets[a.id], price = pr.assets[a.id]; return `<div class="arow"><div class="ai">${a.emoji}</div><div class="ab"><b>${a.name}</b><div class="mut small">${a.desc} Očekávaný výnos ~${Math.round(a.mean * 100)} % ročně, riziko ${a.risk}.${o.n ? ' Další kus vynese o ' + Math.round((1 - Math.max(.4, 1 - .12 * o.n)) * 100) + ' % méně (trh se nasytí).' : ''}</div><div class="mut small">Vlastníte: <b>${o.n}</b>${o.n ? ` (hodnota ${kc(o.value)})` : ''}</div></div><div class="aa">${btn('Koupit<br>' + kc(price), 'buy', a.id, ceo && t.money >= price)}${btn('Prodat', 'sell', a.id, ceo && o.n > 0, 'ghost')}${sg('buy:' + a.id)}</div></div>`; }).join('');
     const amt = [500, 1000];
-    return `<div class="card ev compact"><div class="ev-k">${ev.emoji} ${esc(ev.name)}</div>${this.evChips(ev)}</div>
+    const log = t.log.filter(l => l.y === S.year).map(l => `<div class="lg">• ${esc(l.text)}</div>`).join('');
+    const hint = !can('ceo') || !can('cfo') || !can('adm') ? '<div class="card tipc">💬 Nemáš na starost všechno? Klepni na <b>💬</b> u položky – kolegovi se zobrazí tvůj návrh. Domluvte se spolu nahlas!</div>' : '';
+    return `<div class="card ev compact"><div class="ev-k">${ev.emoji} ${esc(ev.name)}</div>${this.evChips(ev)}</div>${hint}
       <div class="card cash">💵 Hotovost: <b>${kc(t.money)}</b> <span class="mut">· 🐷 ${kc(t.savings)} · 🏦 dluh ${kc(t.loan)}</span></div>
       <div class="card sec"><div class="sec-h">💼 Podniky ${lock('ceo')}</div>${assets}</div>
       <div class="card sec"><div class="sec-h">🏦 Spoření a úvěr ${lock('cfo')}</div>
-        <div class="srow"><div><b>🐷 Spořicí účet</b><div class="mut small">Zůstatek ${kc(t.savings)} · úrok ${String(ev.save).replace('.', ',')} % ročně (inflace ${ev.infl} %)</div></div></div>
+        <div class="srow"><div><b>🐷 Spořicí účet</b> ${sg('deposit')}<div class="mut small">Zůstatek ${kc(t.savings)} · úrok ${String(ev.save).replace('.', ',')} % ročně (inflace ${ev.infl} %)</div></div></div>
         <div class="btns">${amt.map(a => btn('Vložit ' + a, 'deposit', a, cfo && t.money >= a)).join('')}${btn('Vložit vše', 'deposit', 'all', cfo && t.money > 0)}${amt.map(a => btn('Vybrat ' + a, 'withdraw', a, cfo && t.savings >= a, 'ghost')).join('')}${btn('Vybrat vše', 'withdraw', 'all', cfo && t.savings > 0, 'ghost')}</div>
-        <div class="srow"><div><b>🏦 Úvěr</b><div class="mut small">Dluh ${kc(t.loan)} · úrok ${ev.loan} % ročně · limit ${kc(pr.maxLoan)}</div></div></div>
+        <div class="srow"><div><b>🏦 Úvěr</b> ${sg('repay')}<div class="mut small">Dluh ${kc(t.loan)} · úrok ${ev.loan} % ročně · limit ${kc(pr.maxLoan)}</div></div></div>
         <div class="btns">${btn('Půjčit si 1 000', 'borrow', 1000, cfo && t.loan + 1000 <= pr.maxLoan)}${btn('Půjčit si 3 000', 'borrow', 3000, cfo && t.loan + 3000 <= pr.maxLoan)}${btn('Splatit 1 000', 'repay', 1000, cfo && t.loan > 0 && t.money >= 1, 'ghost')}${btn('Splatit vše', 'repay', 'all', cfo && t.loan > 0 && t.money > 0, 'ghost')}</div></div>
       <div class="card sec"><div class="sec-h">🛡️ Pojištění a školení ${lock('adm')}</div>
-        <div class="srow"><div><b>☂️ Pojištění na letošní rok</b><div class="mut small">${kc(pr.insurance)} · kryje náhodnou škodu (požár, krádež, porucha…). ${t.insured ? '<b class="okc">Máte pojištěno ✓</b>' : 'Zatím nepojištěni.'}</div></div>${btn(t.insured ? 'Pojištěno' : 'Pojistit ' + kc(pr.insurance), 'insure', 1, adm && !t.insured && t.money >= pr.insurance)}</div>
-        <div class="srow"><div><b>🎓 Školení (úroveň ${t.train}/3)</b><div class="mut small">Zvyšuje odměny za správné odpovědi o 15 % za úroveň. ${t.train < 3 ? 'Další úroveň: ' + kc(pr.train[t.train]) : 'Maximum.'}</div></div>${btn(t.train < 3 ? 'Školit ' + kc(pr.train[t.train]) : 'Max', 'train', 1, adm && t.train < 3 && t.money >= pr.train[t.train])}</div></div>`;
+        <div class="srow"><div><b>☂️ Pojištění na letošní rok</b> ${sg('insure')}<div class="mut small">${kc(pr.insurance)} · kryje náhodnou škodu (požár, krádež, porucha…). ${t.insured ? '<b class="okc">Máte pojištěno ✓</b>' : 'Zatím nepojištěni.'}</div></div>${btn(t.insured ? 'Pojištěno' : 'Pojistit ' + kc(pr.insurance), 'insure', 1, adm && !t.insured && t.money >= pr.insurance)}</div>
+        <div class="srow"><div><b>🎓 Školení (úroveň ${t.train}/3)</b> ${sg('train')}<div class="mut small">Zvyšuje odměny za správné odpovědi o 15 % za úroveň. ${t.train < 3 ? 'Další úroveň: ' + kc(pr.train[t.train]) : 'Maximum.'}</div></div>${btn(t.train < 3 ? 'Školit ' + kc(pr.train[t.train]) : 'Max', 'train', 1, adm && t.train < 3 && t.money >= pr.train[t.train])}</div></div>${log ? `<div class="card"><h3>📜 Co jste letos udělali</h3>${log}</div>` : ''}<button class="btn big ${t.ready ? 'ghost' : ''}" data-a="ready">${t.ready ? '↩ Ještě něco změníme' : '✅ Jsme hotovi'}</button><p class="mut small center-t">Až budou hotové všechny týmy, učitel může rok uzavřít dřív.</p>`;
   },
   resultHtml() {
     const S = this.S, t = S.team, L = t.last; if (!L) return '<div class="card"><p>Vyhodnocuji…</p></div>';
@@ -244,9 +266,17 @@ const Player = {
     const medal = ['🥇', '🥈', '🥉'];
     return `<div class="card final-me ${mine && mine.goalMet ? 'ok' : ''}"><div class="big-e">${mine ? medal[mine.rank - 1] || '🏁' : '🏁'}</div><h2>${mine ? mine.rank + '. místo' : 'Konec hry'}</h2>
       ${mine ? `<p>${mine.goalEmoji} <b>${mine.goalName}</b>: ${esc(mine.goalDesc)}</p><p class="${mine.goalMet ? 'okc' : 'noc'}">${mine.goalMet ? '✅ Tajný cíl splněn!' : '❌ Tajný cíl nesplněn.'}</p><p>Čisté jmění: <b>${kc(mine.net)}</b></p>` : ''}</div>
+      ${(S.awards || []).length ? `<div class="card"><h3>🏅 Ocenění</h3>${S.awards.map(a => `<div class="mrow">${a.emoji} <span><b>${a.title}</b><br><span class="${a.name === S.me.name ? 'okc' : 'mut'}">${esc(a.name)}${a.name === S.me.name ? ' – to jsi ty! 🎉' : ''} · ${esc(a.detail)}</span></span></div>`).join('')}</div>` : ''}
+      <div class="card"><h3>Tvoje statistika</h3><p>✅ ${S.me.correct} správně · ❌ ${S.me.wrong} chyb · vydělal/a jsi ${kc(S.me.earned)}</p>${this.myTopics()}</div>
       <div class="card"><h3>Celkové pořadí</h3>${f.map(r => `<div class="brow ${r.teamId === S.team.id ? 'me' : ''}"><span>${medal[r.rank - 1] || r.rank + '.'}</span><span>${r.emoji} ${esc(r.name)}<small>${r.goalEmoji} ${r.goalName} ${r.goalMet ? '✅' : '❌'}</small></span><b>${kc(r.net)}</b></div>`).join('')}</div>`;
   },
 
+  myTopics() {
+    const S = this.S, rows = T.TOPICS.map(t => ({ t, x: S.stats[t.id] })).filter(r => r.x && r.x.c + r.x.w).map(r => ({ ...r, pct: Math.round(100 * r.x.c / (r.x.c + r.x.w)) }));
+    if (!rows.length) return '';
+    const worst = rows.slice().sort((a, b) => a.pct - b.pct)[0];
+    return `<div class="topicrep">${rows.map(r => `<div class="tr"><span>${r.t.emoji} ${r.t.name}</span><div class="tbar"><i style="width:${r.pct}%;background:${r.pct >= 75 ? 'var(--green)' : r.pct >= 50 ? 'var(--gold)' : 'var(--red)'}"></i></div><b>${r.pct} %</b></div>`).join('')}</div>${worst.pct < 75 ? `<p class="mut small">Procvič si: <b>${worst.t.emoji} ${worst.t.name}</b>.</p>` : '<p class="okc small">Všechna témata zvládáš na jedničku! 🌟</p>'}`;
+  },
   /* ----- záložky ----- */
   teamHtml() {
     const S = this.S, t = S.team; const pr = S.prices;
@@ -255,8 +285,8 @@ const Player = {
       .concat([['☂️ Pojištění letos', t.insured ? 'ano' : 'ne'], ['🎓 Školení', t.train + ' / 3']]);
     const hist = t.history.length ? `<div class="hist">${t.history.map((n, i) => `<div><span>rok ${i + 1}</span><b>${kc(n)}</b></div>`).join('')}</div>` : '';
     return `<div class="card"><h2>${t.emoji} ${esc(t.name)}</h2>
-      <div class="bigno">${kc(t.net)}</div><div class="mut">čisté jmění</div><div class="kv">${rows.map(r => `<div><span>${r[0]}</span><b>${r[1]}</b></div>`).join('')}</div>
-      <p class="mut small">Letos vyděláno: ${kc(t.earnedYear)} · správně ${t.correct}, chyb ${t.wrong}. Životní náklady týmu letos: ${kc(pr.living)}.</p>${hist}</div>
+      <div class="bigno">${kc(t.net)}</div><div class="mut">čisté jmění · po zohlednění inflace (ceny +${Math.round((S.priceIndex - 1) * 100)} %) odpovídá dnešní hodnota jen <b>${kc(t.real)}</b></div><div class="kv">${rows.map(r => `<div><span>${r[0]}</span><b>${r[1]}</b></div>`).join('')}</div>
+      <p class="mut small">Letos vyděláno: ${kc(t.earnedYear)} · správně ${t.correct}, chyb ${t.wrong}. Životní náklady týmu letos: ${kc(t.living)} (rostou s inflací a počtem členů).</p>${hist}</div>
       <div class="card"><h3>Tým</h3>${t.members.map(m => `<div class="mrow">${ROLE[m.role].emoji} <b>${esc(m.name)}</b> <span class="mut">${ROLE[m.role].name}</span> <i class="dot ${m.online ? 'on' : ''}"></i></div>`).join('')}</div>`;
   },
   goalHtml() {

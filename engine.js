@@ -17,18 +17,20 @@ const TEAM_COLORS = ['#ff6b6b', '#4dabf7', '#51cf66', '#fcc419', '#cc5de8', '#ff
 const TEAM_EMOJI = ['🦊', '🐼', '🦁', '🐙', '🦉', '🐯', '🐸', '🦄', '🐧', '🦈', '🐺', '🦖'];
 const ASSETS = [
   { id: 'cafe', name: 'Kavárna', emoji: '☕', price: 1500, mean: .10, sd: .04, risk: 'nízké', desc: 'Malý stabilní podnik.' },
-  { id: 'shop', name: 'Dílna', emoji: '🛠️', price: 3000, mean: .14, sd: .08, risk: 'střední', desc: 'Řemeslná výroba, výnos kolísá víc.' },
-  { id: 'tech', name: 'Technologický startup', emoji: '💻', price: 5000, mean: .20, sd: .35, risk: 'vysoké', desc: 'Vysoký výnos, ale i reálná šance na ztrátu.' },
+  { id: 'shop', name: 'Dílna', emoji: '🛠️', price: 3000, mean: .13, sd: .12, risk: 'střední', desc: 'Řemeslná výroba, výnos kolísá víc.' },
+  { id: 'tech', name: 'Technologický startup', emoji: '💻', price: 5000, mean: .16, sd: .40, risk: 'vysoké', desc: 'Vysoký výnos, ale i reálná šance na ztrátu.' },
   { id: 'home', name: 'Nemovitost k pronájmu', emoji: '🏠', price: 8000, mean: .05, sd: .01, risk: 'nízké', desc: 'Nájemné ~5 % a hodnota roste s inflací.', appreciates: true },
 ];
 const ASSET_BY = Object.fromEntries(ASSETS.map(a => [a.id, a]));
 const LIVING = 700;            // základní roční životní náklady týmu
 const MAX_LOAN = 6000;
-const INS_PRICE = 150;
+const INS_PRICE = 300;           // ≈ očekávaná škoda (40 % × ~1 075 Kč × 70 % pravděp. ztráty)
+const SAT = 0.12;                // každý další kus téhož podniku vynáší o 12 % méně (nasycení trhu)
+const satFactor = n => { let s = 0; for (let i = 0; i < n; i++) s += Math.max(.4, 1 - SAT * i); return s / n; };
 const TRAIN_PRICE = [1000, 1800, 2600];
 const TRAIN_BONUS = 0.15;
 const BASE = { 1: 100, 2: 250, 3: 500 };
-const PEN = { 1: 0, 2: 50, 3: 150 };
+const PEN = { 1: 30, 2: 60, 3: 150 }; const GUESS_LOCK = [0, 3000, 8000]; // pauza po chybě: 3 s, od druhé chyby po sobě 8 s
 const SKIP_FEE = 20;
 const STREAK_EVERY = 3, STREAK_BONUS = 50;
 const MAX_TEAM = 3;
@@ -47,6 +49,20 @@ const EVENTS = [
   { id: 'edu', emoji: '🎓', name: 'Dotace na vzdělávání', text: 'Stát hradí polovinu ceny školení.', infl: 2, save: 2.5, loan: 7, tax: 15, mods: {}, trainDiscount: .5, lesson: 'Investice do vzdělání patří mezi nejvýnosnější – zvyšují budoucí příjem.' },
   { id: 'labor', emoji: '🧑‍💼', name: 'Nedostatek odborníků', text: 'Firmy shání kvalifikované lidi, odměny rostou o 30 %.', infl: 4, save: 3, loan: 8, tax: 15, mods: {}, rew: 1.3, lesson: 'Kvalifikovaná práce je vzácná, a proto dobře placená.' },
 ];
+const DISC = {
+  calm: 'Proč se vyplatí spořit, i když je úrok nízký? Co by se stalo, kdyby inflace byla 8 %?',
+  infl: 'Co se stalo s reálnou hodnotou vašich úspor? Které z vašich aktiv inflaci „dohání“ a proč?',
+  boom: 'Proč je v době růstu snadné podcenit riziko? Co byste dělali, kdyby po boomu přišla recese?',
+  crisis: 'Kdo z vás měl rezervu a kdo musel sáhnout po úvěru? Jak by vypadal rok bez diverzifikace?',
+  taxup: 'Kolik z vydělaných peněz vám stát vzal? Vyplatí se podnikat i při vyšší dani?',
+  taxdown: 'Co udělá nižší daň s motivací pracovat a investovat? Co může stát přijít o?',
+  rates: 'Komu zvýšení sazeb pomáhá a komu škodí? Měli jste dluh? Co s ním teď?',
+  tech: 'Je vysoký výnos „zadarmo“? Jak poznat bublinu? Kolik z majetku je rozumné dát do rizikových aktiv?',
+  energy: 'Proč inflace nezasáhne všechny stejně? Kdo je na tom hůř – podnik s velkou spotřebou energie, nebo nemovitost?',
+  mortgage: 'Proč nízké úroky zvedají ceny nemovitostí? Je výhodné se kvůli investici zadlužit?',
+  edu: 'Proč patří vzdělání mezi nejvýnosnější investice? Čím se liší od koupě podniku?',
+  labor: 'Proč jsou kvalifikovaní lidé dobře placení? Co z toho plyne pro vaše vlastní studium?',
+};
 const LOCAL_EVENTS = [
   { id: 'fire', emoji: '🔥', name: 'Požár v dílně', type: 'loss', amount: 1200, text: 'Škoda na vybavení.' },
   { id: 'car', emoji: '🚗', name: 'Porucha firemního auta', type: 'loss', amount: 700, text: 'Nutná oprava.' },
@@ -86,12 +102,12 @@ const GOAL_BY = Object.fromEntries(GOALS.map(g => [g.id, g]));
 /* ---------- stav ---------- */
 function newState(code) {
   return {
-    v: 1, code, phase: 'lobby', year: 0, settings: { years: 6, workSec: 240, decideSec: 150, startMoney: 2000, topics: Tasks.TOPICS.map(t => t.id) },
-    players: {}, teams: [], event: null, usedEvents: [], priceIndex: 1, endsAt: 0, final: null, tcount: 0,
+    v: 1, code, phase: 'lobby', year: 0, settings: { years: 6, workSec: 240, decideSec: 150, startMoney: 2000, diffs: [1, 2, 3], topics: Tasks.TOPICS.map(t => t.id) },
+    players: {}, teams: [], topicStats: {}, awards: null, paused: false, pauseLeft: 0, event: null, usedEvents: [], priceIndex: 1, endsAt: 0, final: null, tcount: 0,
   };
 }
 function econ(S) {
-  return { netStart: S.settings.startMoney, money: S.settings.startMoney, savings: 0, loan: 0, assets: Object.fromEntries(ASSETS.map(a => [a.id, { n: 0, value: 0 }])), train: 0, insuredYear: 0, insuredCount: 0, earnedYear: 0, earnedTotal: 0, correct: 0, wrong: 0, yc: 0, yw: 0, last: null, history: [], goal: null };
+  return { netStart: S.settings.startMoney, money: S.settings.startMoney, savings: 0, loan: 0, assets: Object.fromEntries(ASSETS.map(a => [a.id, { n: 0, value: 0 }])), train: 0, insuredYear: 0, insuredCount: 0, ready: false, log: [], sugg: {}, earnedYear: 0, earnedTotal: 0, correct: 0, wrong: 0, yc: 0, yw: 0, last: null, history: [], goal: null };
 }
 function assetValue(t) { return ASSETS.reduce((s, a) => s + t.assets[a.id].value, 0); }
 function net(t) { return Math.round(t.money + t.savings + assetValue(t) - t.loan); }
@@ -102,7 +118,7 @@ function canDo(t, pid, key) { const idx = ROLES.findIndex(r => r.key === key); c
 function joinPlayer(S, token, name) {
   let p = Object.values(S.players).find(x => x.token === token);
   name = String(name || '').trim().slice(0, 16) || 'Hráč';
-  if (!p) { p = { id: 'p' + uid(), token, name, teamId: null, online: true, lastSeen: Date.now(), streak: 0, correct: 0, wrong: 0, earned: 0, task: null, lastRes: null, recent: [], diff: 1 }; S.players[p.id] = p; }
+  if (!p) { p = { id: 'p' + uid(), token, name, teamId: null, online: true, lastSeen: Date.now(), streak: 0, correct: 0, wrong: 0, earned: 0, task: null, lastRes: null, recent: [], diff: 1, stats: {}, best: 0, hard: 0, wrongRun: 0, okRun: 0 }; S.players[p.id] = p; }
   else { p.name = name; p.online = true; p.lastSeen = Date.now(); }
   return p;
 }
@@ -139,24 +155,27 @@ function startGame(S) {
   if (!S.teams.length) return 'Nikdo se zatím nepřipojil.';
   const goals = shuffle(GOALS);
   S.teams.forEach((t, i) => { Object.assign(t, econ(S)); t.goal = goals[i % goals.length].id; });
-  Object.values(S.players).forEach(p => { p.streak = 0; p.correct = 0; p.wrong = 0; p.earned = 0; p.task = null; p.lastRes = null; });
+  Object.values(S.players).forEach(resetPlayer);
+  S.topicStats = {}; S.awards = null; S.paused = false;
   S.year = 1; S.priceIndex = 1; S.usedEvents = []; S.final = null; drawEvent(S);
   S.phase = 'event'; S.endsAt = 0; return null;
 }
+function resetPlayer(p) { p.streak = 0; p.correct = 0; p.wrong = 0; p.earned = 0; p.task = null; p.lastRes = null; p.stats = {}; p.best = 0; p.hard = 0; p.wrongRun = 0; p.okRun = 0; }
 function drawEvent(S) {
   let ev;
   if (S.year === 1) ev = EVENTS[0];
   else { let pool = EVENTS.filter(e => !S.usedEvents.includes(e.id) && e.id !== 'calm'); if (!pool.length) { S.usedEvents = []; pool = EVENTS.filter(e => e.id !== 'calm'); } ev = pick(pool); }
-  S.usedEvents.push(ev.id); S.event = JSON.parse(JSON.stringify(ev));
+  S.usedEvents.push(ev.id); S.event = JSON.parse(JSON.stringify(ev)); S.event.q = DISC[ev.id] || '';
+  S.teams.forEach(t => { t.sugg = {}; t.ready = false; }); Object.values(S.players).forEach(p => { p.yn = 0; });
   S.priceIndex = +(S.priceIndex * (1 + ev.infl / 100)).toFixed(4);
 }
 function next(S) {
   const now = Date.now();
   switch (S.phase) {
     case 'lobby': return startGame(S);
-    case 'event': S.phase = 'work'; S.endsAt = now + S.settings.workSec * 1000; break;
-    case 'work': Object.values(S.players).forEach(p => { p.task = null; }); S.phase = 'decide'; S.endsAt = now + S.settings.decideSec * 1000; break;
-    case 'decide': resolveYear(S); S.phase = 'result'; S.endsAt = 0; break;
+    case 'event': S.paused = false; S.phase = 'work'; S.endsAt = now + S.settings.workSec * 1000; break;
+    case 'work': S.paused = false; Object.values(S.players).forEach(p => { p.task = null; }); S.phase = 'decide'; S.teams.forEach(t => { t.ready = false; }); S.endsAt = now + S.settings.decideSec * 1000; break;
+    case 'decide': S.paused = false; resolveYear(S); S.phase = 'result'; S.endsAt = 0; break;
     case 'result':
       if (S.year >= S.settings.years) { finalize(S); S.phase = 'final'; }
       else { S.year++; drawEvent(S); Object.values(S.players).forEach(p => { p.lastRes = null; }); S.phase = 'event'; }
@@ -165,12 +184,19 @@ function next(S) {
   }
   return null;
 }
+function togglePause(S) {
+  if (S.phase !== 'work' && S.phase !== 'decide') return;
+  if (!S.paused) { S.paused = true; S.pauseLeft = Math.max(0, S.endsAt - Date.now()); S.endsAt = 0; }
+  else { S.paused = false; S.endsAt = Date.now() + S.pauseLeft; }
+}
 function resetGame(S) {
   S.phase = 'lobby'; S.year = 0; S.event = null; S.final = null; S.priceIndex = 1; S.endsAt = 0;
   S.teams.forEach(t => Object.assign(t, econ(S)));
-  Object.values(S.players).forEach(p => { p.task = null; p.lastRes = null; p.streak = 0; p.correct = 0; p.wrong = 0; p.earned = 0; });
+  Object.values(S.players).forEach(resetPlayer); S.topicStats = {}; S.awards = null; S.paused = false;
   return null;
 }
+/* životní náklady rostou s počtem členů – malé týmy nejsou znevýhodněné */
+function living(S, t) { return round10((300 + 130 * t.members.length) * S.priceIndex); }
 function prices(S) {
   const idx = S.priceIndex, ev = S.event || EVENTS[0];
   return {
@@ -189,7 +215,7 @@ function resolveYear(S) {
     const L = []; const add = (label, amt, kind, extra) => L.push(Object.assign({ label, amt: Math.round(amt), kind: kind || (amt >= 0 ? 'in' : 'out') }, extra || {}));
     const start = t.netStart;
     add('Příjem z úloh (už připsáno v hotovosti)', t.earnedYear, 'info');
-    let taxable = t.earnedYear;
+    let taxable = t.earnedYear; const lv = living(S, t); const sat = n => satFactor(n);
     const pay = (amt) => { t.money -= amt; if (t.money < 0) { t.loan += -t.money; t.money = 0; return true; } return false; };
     /* spoření */
     if (t.savings > 0) { const i = Math.round(t.savings * ev.save / 100); t.savings += i; taxable += Math.max(0, i); add(`Úrok ze spoření (${String(ev.save).replace('.', ',')} %)`, i, 'in', { note: 'připsáno na spořicí účet' }); }
@@ -197,20 +223,21 @@ function resolveYear(S) {
     for (const a of ASSETS) {
       const o = t.assets[a.id]; if (!o.n) continue;
       let ret;
-      if (a.appreciates) { ret = a.mean + (ev.mods[a.id] || 0) * .5; const inc = Math.round(o.value * ret); t.money += inc; taxable += Math.max(0, inc); const gain = Math.round(o.value * ev.infl / 100); o.value += gain; add(`${a.emoji} ${a.name} ×${o.n} – nájem`, inc, 'in'); add(`${a.emoji} růst hodnoty nemovitosti`, gain, 'info', { note: `+${ev.infl} % (inflace)` }); continue; }
-      ret = Math.max(-.6, Math.min(1.2, a.mean + (ev.mods[a.id] || 0) + a.sd * gauss()));
+      const sf = satFactor(o.n), satNote = sf < .999 ? ` · nasycení trhu −${Math.round((1 - sf) * 100)} %` : '';
+      if (a.appreciates) { ret = a.mean * sf + (ev.mods[a.id] || 0) * .5; const inc = Math.round(o.value * ret); t.money += inc; taxable += Math.max(0, inc); const gain = Math.round(o.value * ev.infl / 100); o.value += gain; add(`${a.emoji} ${a.name} ×${o.n} – nájem`, inc, 'in', satNote ? { note: satNote.slice(3) } : null); add(`${a.emoji} růst hodnoty nemovitosti`, gain, 'info', { note: `+${ev.infl} % (inflace)` }); continue; }
+      ret = Math.max(-.6, Math.min(1.2, a.mean * sf + (ev.mods[a.id] || 0) + a.sd * gauss()));
       const inc = Math.round(o.value * ret); t.money += inc; taxable += Math.max(0, inc);
-      add(`${a.emoji} ${a.name} ×${o.n}`, inc, inc >= 0 ? 'in' : 'out', { note: `výnos ${(ret * 100).toFixed(1).replace('.', ',').replace('-', MINUS)} %` });
+      add(`${a.emoji} ${a.name} ×${o.n}`, inc, inc >= 0 ? 'in' : 'out', { note: `výnos ${(ret * 100).toFixed(1).replace('.', ',').replace('-', MINUS)} %${satNote}` });
     }
     /* úvěr */
     if (t.loan > 0) { const li = Math.round(t.loan * ev.loan / 100); const over = pay(li); add(`Úrok z úvěru (${ev.loan} %)`, -li, 'out', over ? { note: 'nedostatek peněz → přidáno k úvěru' } : null); }
     /* daň */
     const tax = Math.round(taxable * ev.tax / 100); if (tax > 0) { const over = pay(tax); add(`Daň z příjmů (${ev.tax} % z ${kc(taxable)})`, -tax, 'out', over ? { note: 'nedostatek peněz → přidáno k úvěru' } : null); }
     /* živobytí */
-    { const over = pay(pr.living); add('Životní náklady týmu', -pr.living, 'out', over ? { note: 'nedostatek peněz → přidáno k úvěru' } : null); }
+    { const over = pay(lv); add(`Životní náklady týmu (${t.members.length} čl.)`, -lv, 'out', over ? { note: 'nedostatek peněz → přidáno k úvěru' } : null); }
     /* místní událost */
     let local = null;
-    if (Math.random() < .5) {
+    if (Math.random() < .4) {
       const e = pick(Math.random() < .7 ? LOCAL_EVENTS.filter(x => x.type === 'loss') : LOCAL_EVENTS.filter(x => x.type === 'gain'));
       const amt = round50(e.amount * S.priceIndex);
       if (e.type === 'loss') {
@@ -225,7 +252,20 @@ function resolveYear(S) {
     t.earnedYear = 0; t.yc = 0; t.yw = 0;
   }
 }
+function awards(S) {
+  const ps = Object.values(S.players).filter(p => p.teamId); const A = [];
+  const best = (fn, min) => ps.filter(p => fn(p) >= min).sort((a, b) => fn(b) - fn(a))[0];
+  const n = p => p.correct + p.wrong;
+  let w;
+  if ((w = best(p => p.earned, 1))) A.push({ emoji: '💰', title: 'Největší výdělkář', name: w.name, detail: kc(w.earned) });
+  if ((w = best(p => n(p) >= 8 ? p.correct / n(p) : 0, .01))) A.push({ emoji: '🎯', title: 'Přesný střelec', name: w.name, detail: Math.round(100 * w.correct / n(w)) + ' % úspěšnost' });
+  if ((w = best(p => p.best, 3))) A.push({ emoji: '🔥', title: 'Král série', name: w.name, detail: w.best + ' správně v řadě' });
+  if ((w = best(p => p.hard, 1))) A.push({ emoji: '🧗', title: 'Odvážlivec', name: w.name, detail: w.hard + '× vyřešená těžká úloha' });
+  if ((w = best(p => n(p), 1))) A.push({ emoji: '⚡', title: 'Nejvíc úloh', name: w.name, detail: n(w) + ' úloh' });
+  return A;
+}
 function finalize(S) {
+  S.awards = awards(S);
   const rows = S.teams.map(t => { const g = GOAL_BY[t.goal]; return { teamId: t.id, net: net(t), goalId: t.goal, goalMet: !!(g && g.check(t, S)), correct: t.correct, wrong: t.wrong }; });
   rows.sort((a, b) => (b.goalMet - a.goalMet) || (b.net - a.net));
   rows.forEach((r, i) => r.rank = i + 1); S.final = rows;
@@ -235,38 +275,55 @@ function goalState(S, t) { const g = GOAL_BY[t.goal]; if (!g) return null; retur
 /* ---------- úlohy ---------- */
 function giveTask(S, pid, diff) {
   const p = S.players[pid]; if (S.phase !== 'work') return 'Teď nelze řešit úlohy.';
+  if (S.paused) return 'Hra je pozastavena.';
   if (!teamOf(S, pid)) return 'Nejdřív vstup do týmu.';
-  diff = [1, 2, 3].includes(+diff) ? +diff : 1; p.diff = diff; p.lastRes = null;
+  if (p.lockUntil && Date.now() < p.lockUntil) return `Přečti si řešení – další úloha za ${Math.ceil((p.lockUntil - Date.now()) / 1000)} s.`;
+  diff = [1, 2, 3].includes(+diff) ? +diff : 1; const okd = S.settings.diffs && S.settings.diffs.length ? S.settings.diffs : [1, 2, 3]; if (!okd.includes(diff)) diff = okd.reduce((b, d) => Math.abs(d - diff) < Math.abs(b - diff) ? d : b, okd[0]); p.diff = diff; p.lastRes = null;
   const topics = S.settings.topics.length ? S.settings.topics : Tasks.TOPICS.map(t => t.id);
-  let t, tries = 0;
-  do { t = Tasks.generate(pick(topics), diff); tries++; } while (p.recent.includes(t.q) && tries < 8);
-  p.recent.push(t.q); if (p.recent.length > 15) p.recent.shift();
+  let t, tries = 0; p.rg = p.rg || [];
+  // pestrost: nezopakovat zadání (40 posledních), stejný typ úlohy (4 poslední) ani stejné téma dvakrát po sobě
+  // opakování nejslabšího tématu (aspoň 2 pokusy a ≥ 40 % chyb) – každá třetí úloha zhruba
+  const weak = Object.entries(p.stats).filter(([k, v]) => topics.includes(k) && v.c + v.w >= 2 && v.w / (v.c + v.w) >= .4).sort((a, b) => b[1].w / (b[1].c + b[1].w) - a[1].w / (a[1].c + a[1].w))[0];
+  const review = weak && Math.random() < .3 ? weak[0] : null;
+  do { const tp = review && tries < 6 ? review : topics.length > 1 && tries < 12 ? pick(topics.filter(x => x !== p.lastTopic)) : pick(topics); t = Tasks.generate(tp, diff); tries++; }
+  while ((p.recent.includes(t.q) || (p.rg.includes(t.topic + ':' + t.gen) && tries < 14)) && tries < 20);
+  p.recent.push(t.q); if (p.recent.length > 40) p.recent.shift();
+  if (review && t.topic === review) t.review = true;
+  p.rg.push(t.topic + ':' + t.gen); if (p.rg.length > 4) p.rg.shift(); p.lastTopic = t.topic;
   t.id = uid(); p.task = t; return null;
 }
 function answerTask(S, pid, m) {
   const p = S.players[pid], t = teamOf(S, pid);
   if (S.phase !== 'work') return { err: 'Čas na práci vypršel.' };
+  if (S.paused) return { err: 'Hra je pozastavena.' };
   if (!p || !p.task || p.task.id !== m.id) return { err: 'Tahle úloha už neplatí.' };
   const task = p.task; let ok = false;
   if (task.type === 'mc') ok = +m.a === task.correct; else ok = Tasks.checkNum(m.a, task.ans);
+  p.yn = (p.yn || 0) + 1;
   const res = { id: task.id, ok, diff: task.diff, topic: task.topic, ansText: task.ansText, expl: task.expl, q: task.q, reward: 0, pen: 0, bonus: 0 };
+  const ts = S.topicStats[task.topic] = S.topicStats[task.topic] || { c: 0, w: 0 }, ps = p.stats[task.topic] = p.stats[task.topic] || { c: 0, w: 0 };
+  if (ok) { ts.c++; ps.c++; p.okRun++; p.wrongRun = 0; if (task.diff === 3) p.hard++; } else { ts.w++; ps.w++; p.wrongRun++; p.okRun = 0; }
   if (ok) {
     const mult = (1 + TRAIN_BONUS * t.train) * ((S.event && S.event.rew) || 1);
-    res.reward = round10(BASE[task.diff] * mult); p.streak++; t.correct++; t.yc++; p.correct++;
+    const f = task.type === 'mc' && task.choices.length === 2 ? .5 : 1; // ano/ne se dá tipovat → poloviční odměna
+    res.reward = round10(BASE[task.diff] * mult * f); p.streak++; t.correct++; t.yc++; p.correct++;
     if (p.streak % STREAK_EVERY === 0) res.bonus = STREAK_BONUS;
     const tot = res.reward + res.bonus; t.money += tot; t.earnedYear += tot; t.earnedTotal += tot; p.earned += tot;
-  } else { p.streak = 0; t.wrong++; t.yw++; p.wrong++; res.pen = Math.min(PEN[task.diff], t.money); t.money -= res.pen; }
+  } else { p.streak = 0; t.wrong++; t.yw++; p.wrong++; res.pen = Math.min(PEN[task.diff], t.money); t.money -= res.pen; p.lockUntil = Date.now() + (p.wrongRun >= 2 ? GUESS_LOCK[2] : GUESS_LOCK[1]); }
+  if (p.streak > p.best) p.best = p.streak;
+  if (!ok && p.wrongRun >= 2 && task.diff >= 2) res.tip = 'Dvě chyby po sobě – zkus teď lehčí úlohu a zahřej se. 🙂';
+  else if (ok && p.okRun >= 4 && task.diff < 3) res.tip = 'Jde ti to skvěle! Zkus těžší úlohu – vyděláš víc. 🚀';
   res.streak = p.streak; p.task = null; p.lastRes = res; return { res };
 }
 
 /* ---------- akce v rozhodovací fázi ---------- */
 function act(S, pid, m) {
   const err = text => ({ changed: false, toast: { ok: false, text } });
-  const okk = text => ({ changed: true, toast: { ok: true, text } });
+  const okk = text => { const t0 = teamOf(S, pid); if (t0) { t0.log.push({ y: S.year, text: `${S.players[pid].name}: ${text}` }); if (t0.log.length > 8) t0.log.shift(); } return { changed: true, toast: { ok: true, text } }; };
   if (S.phase !== 'decide') return err('Rozhodovat se dá jen ve fázi „Rozhodování“.');
   const t = teamOf(S, pid); if (!t) return err('Nejsi v týmu.');
   const pr = prices(S), a = m.a, arg = m.arg;
-  const need = key => { if (!canDo(t, pid, key)) { const r = ROLES.find(x => x.key === key); return `Tohle může jen ${r.emoji} ${r.name} (${esc(S.players[t.members[ROLES.indexOf(r)]].name)}).`; } return null; };
+  const need = key => { if (!canDo(t, pid, key)) { const r = ROLES.find(x => x.key === key); return `Tohle může jen ${r.emoji} ${r.name} (${S.players[t.members[ROLES.indexOf(r)]].name}).`; } return null; };
   let e;
   switch (a) {
     case 'buy': { if ((e = need('ceo'))) return err(e); const A = ASSET_BY[arg]; if (!A) return err('Neznámý podnik.'); const price = pr.assets[A.id]; if (t.money < price) return err('Nemáte dost peněz (' + kc(price) + ').'); t.money -= price; t.assets[A.id].n++; t.assets[A.id].value += price; return okk(`${A.emoji} ${A.name} koupen za ${kc(price)}.`); }
@@ -288,12 +345,14 @@ function handle(S, pid, m) {
   const err = text => ({ changed: false, toast: { ok: false, text } });
   switch (m.t) {
     case 'ping': return { changed: false };
-    case 'team:create': { if (S.phase !== 'lobby') return err('Tým lze vytvořit jen před startem.'); leaveTeam(S, pid); const t = mkTeam(S, esc(m.name || ''), TEAM_EMOJI.includes(m.emoji) ? m.emoji : null); t.members.push(pid); p.teamId = t.id; return { changed: true }; }
+    case 'team:create': { if (S.phase !== 'lobby') return err('Tým lze vytvořit jen před startem.'); leaveTeam(S, pid); const t = mkTeam(S, m.name || '', TEAM_EMOJI.includes(m.emoji) ? m.emoji : null); t.members.push(pid); p.teamId = t.id; return { changed: true }; }
     case 'team:join': { const e = joinTeam(S, pid, m.teamId); return e ? err(e) : { changed: true }; }
     case 'team:leave': { if (S.phase !== 'lobby') return err('Po startu už nelze měnit tým.'); leaveTeam(S, pid); return { changed: true }; }
     case 'task:get': { const e = giveTask(S, pid, m.diff); return e ? err(e) : { changed: true }; }
     case 'task:answer': { const r = answerTask(S, pid, m); return r.err ? err(r.err) : { changed: true }; }
     case 'task:skip': { const t = teamOf(S, pid); if (S.phase === 'work' && t && p.task) { const fee = Math.min(SKIP_FEE, t.money); t.money -= fee; p.task = null; p.streak = 0; p.lastRes = null; return { changed: true, toast: { ok: false, text: `Přeskočeno (−${fee} Kč).` } }; } return { changed: false }; }
+    case 'suggest': { const t = teamOf(S, pid); const k = String(m.k || '').slice(0, 24); if (S.phase !== 'decide' || !t || !k) return { changed: false }; const a = t.sugg[k] = t.sugg[k] || []; const i = a.indexOf(p.name); if (i >= 0) a.splice(i, 1); else a.push(p.name); if (!a.length) delete t.sugg[k]; return { changed: true }; }
+    case 'ready': { const t = teamOf(S, pid); if (S.phase !== 'decide' || !t) return { changed: false }; t.ready = !t.ready; return { changed: true }; }
     case 'task:next': { p.lastRes = null; return { changed: true }; }
     case 'act': return act(S, pid, m);
   }
@@ -301,21 +360,24 @@ function handle(S, pid, m) {
 }
 
 /* ---------- pohled pro hráče (bez tajných dat) ---------- */
-function publicTeam(S, t) { return { id: t.id, name: t.name, emoji: t.emoji, color: t.color, net: net(t), members: t.members.map(id => ({ id, name: S.players[id].name, online: S.players[id].online })) }; }
+function publicTeam(S, t) { return { earned: Math.round(t.earnedYear || 0), id: t.id, name: t.name, emoji: t.emoji, color: t.color, net: net(t), members: t.members.map(id => ({ id, name: S.players[id].name, online: S.players[id].online })) }; }
 function viewFor(S, pid) {
   const p = S.players[pid], t = teamOf(S, pid);
-  const v = { code: S.code, phase: S.phase, year: S.year, years: S.settings.years, now: Date.now(), endsAt: S.endsAt, event: S.event, priceIndex: S.priceIndex, prices: prices(S), teams: S.teams.map(x => publicTeam(S, x)), topics: S.settings.topics, maxTeam: MAX_TEAM };
+  const v = { paused: S.paused, code: S.code, phase: S.phase, year: S.year, years: S.settings.years, now: Date.now(), endsAt: S.endsAt, event: S.event, priceIndex: S.priceIndex, prices: prices(S), teams: S.teams.map(x => publicTeam(S, x)), topics: S.settings.topics, maxTeam: MAX_TEAM };
+  v.diffs = S.settings.diffs || [1, 2, 3];
   v.me = { id: pid, name: p.name, teamId: p.teamId, role: t ? (ROLES[roleIdx(t, pid)] || ROLES[0]).key : null, streak: p.streak, correct: p.correct, wrong: p.wrong, earned: p.earned, diff: p.diff };
   if (t) {
-    v.team = { id: t.id, name: t.name, emoji: t.emoji, color: t.color, money: Math.round(t.money), savings: Math.round(t.savings), loan: Math.round(t.loan), assets: t.assets, train: t.train, insured: t.insuredYear === S.year && S.phase !== 'lobby', insuredCount: t.insuredCount, earnedYear: t.earnedYear, correct: t.correct, wrong: t.wrong, yc: t.yc, net: net(t), last: t.last, history: t.history, members: t.members.map((id, i) => ({ id, name: S.players[id].name, online: S.players[id].online, role: ROLES[i].key })) };
+    v.team = { id: t.id, name: t.name, emoji: t.emoji, color: t.color, money: Math.round(t.money), savings: Math.round(t.savings), loan: Math.round(t.loan), assets: t.assets, train: t.train, insured: t.insuredYear === S.year && S.phase !== 'lobby', insuredCount: t.insuredCount, earnedYear: t.earnedYear, correct: t.correct, wrong: t.wrong, yc: t.yc, living: living(S, t), ready: !!t.ready, net: net(t), real: Math.round(net(t) / S.priceIndex), log: t.log, sugg: t.sugg, last: t.last, history: t.history, members: t.members.map((id, i) => ({ id, name: S.players[id].name, online: S.players[id].online, role: ROLES[i].key })) };
     v.goal = S.phase === 'lobby' ? null : goalState(S, t);
   }
   if (p.task) { const k = p.task; v.task = { id: k.id, type: k.type, q: k.q, choices: k.choices || null, hint: k.hint || '', diff: k.diff, topic: k.topic }; }
+  v.stats = p.stats; v.topicStats = S.topicStats;
   if (p.lastRes) v.res = p.lastRes;
+  if (S.phase === 'final') v.awards = S.awards;
   if (S.phase === 'final' && S.final) v.final = S.final.map(r => { const tt = S.teams.find(x => x.id === r.teamId); const g = GOAL_BY[r.goalId]; return { ...r, name: tt.name, emoji: tt.emoji, color: tt.color, goalName: g.name, goalEmoji: g.emoji, goalDesc: g.desc(S) }; });
   return v;
 }
 
-root.Engine = { ROLES, ASSETS, ASSET_BY, EVENTS, GOALS, GOAL_BY, TRAIN_PRICE, TRAIN_BONUS, BASE, PEN, SKIP_FEE, MAX_TEAM, STREAK_EVERY, STREAK_BONUS, TEAM_EMOJI, newState, joinPlayer, mkTeam, joinTeam, leaveTeam, autoAssign, startGame, next, prices, net, assetValue, teamOf, goalState, handle, viewFor, kc, esc, resetGame, giveTask, answerTask, act, resolveYear, canDo, publicTeam };
+root.Engine = { DISC, ROLES, ASSETS, ASSET_BY, EVENTS, GOALS, GOAL_BY, TRAIN_PRICE, TRAIN_BONUS, BASE, PEN, GUESS_LOCK, SKIP_FEE, MAX_TEAM, STREAK_EVERY, STREAK_BONUS, TEAM_EMOJI, newState, joinPlayer, mkTeam, joinTeam, leaveTeam, autoAssign, startGame, next, prices, net, assetValue, teamOf, goalState, handle, viewFor, kc, esc, living, satFactor, resetGame, togglePause, resetPlayer, giveTask, answerTask, act, resolveYear, canDo, publicTeam };
 if (typeof module !== 'undefined') module.exports = root.Engine;
 })(typeof window !== 'undefined' ? window : globalThis);

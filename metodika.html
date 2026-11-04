@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Finanční liga – metodický list</title><link rel="stylesheet" href="style.css"></head>
+<body><div class="doc" id="doc">Načítám…</div>
+<script src="tasks.js"></script><script src="engine.js"></script>
+<script>
+const E=Engine,T=Tasks,kc=E.kc;
+const S={settings:{years:6}};
+const goals=E.GOALS.map(g=>`<tr><td>${g.emoji} <b>${g.name}</b></td><td>${g.desc(S)}</td></tr>`).join('');
+document.getElementById('doc').innerHTML=`
+<p class="noprint"><a href="./">← Zpět ke hře</a> · <a href="#" onclick="print();return false">🖨 Vytisknout</a></p>
+<h1>📖 Finanční liga – metodický list</h1>
+<p><b>Cíl hodiny:</b> procvičit středoškolskou matematiku v motivujícím týmovém kontextu a zároveň nechat žáky zažít základní principy finanční gramotnosti: rozdíl mezi nominální a reálnou hodnotou peněz, úrok, daň, riziko a výnos, diverzifikaci, pojištění a investici do vzdělání.</p>
+<h2>Časový plán</h2>
+<table><tr><th>Varianta</th><th>Nastavení</th><th>Délka</th></tr>
+<tr><td>Vyučovací hodina</td><td>4 roky, práce 3 min, rozhodování 1,5 min</td><td>≈ 40 min</td></tr>
+<tr><td>Dvouhodinovka / projekt</td><td>6 let, práce 4 min, rozhodování 2,5 min, diskuse po každém roce</td><td>≈ 75–90 min</td></tr>
+<tr><td>Opakování před maturitou</td><td>zvolte jen vybrané okruhy, 5–6 let</td><td>≈ 60 min</td></tr></table>
+<h2>Před hodinou</h2>
+<ul><li>Otevřete hru na počítači s projektorem a ověřte, že se připojí 1–2 telefony (ve školní síti může být WebRTC omezené – viz README).</li>
+<li>Žáci potřebují mobil s prohlížečem a papír na výpočty. Týmy po 3 (poslední tým může mít 1–2 členy).</li>
+<li>Vyzkoušejte si <b>demo s boty</b> na úvodní stránce – za minutu uvidíte celý průběh.</li></ul>
+<h2>Role v týmu a jejich smysl</h2>
+<table><tr><th>Role</th><th>Rozhoduje o</th><th>Pedagogický smysl</th></tr>
+${E.ROLES.map(r=>`<tr><td>${r.emoji} <b>${r.name}</b></td><td>${r.does}</td><td>${{ceo:'riziko × výnos, diverzifikace',cfo:'úrok, inflace, dluh',adm:'pojištění, investice do vzdělání'}[r.key]}</td></tr>`).join('')}</table>
+<p>Role se přidělují podle pořadí vstupu do týmu. Ostatní členové mohou kolegovi <b>navrhovat</b> kroky tlačítkem 💬 – tým se musí domluvit.</p>
+<h2>Události roku a otázky do diskuse</h2>
+<p>Po každém vyúčtování se na projektoru zobrazí poučení a otázka do diskuse. Doporučujeme 2–3 minuty frontální nebo týmové reflexe.</p>
+<table><tr><th>Událost</th><th>Poučení</th><th>Otázka do diskuse</th></tr>
+${E.EVENTS.map(e=>{const q=E.DISC[e.id];return `<tr><td>${e.emoji} <b>${e.name}</b></td><td>${e.lesson}</td><td>${q}</td></tr>`}).join('')}</table>
+<h2>Tajné cíle</h2>
+<p>Každý tým dostane jeden cíl. Vyhrává tým, který cíl splní (při shodě rozhoduje čisté jmění). Cíle podporují různé strategie – spořivou, podnikatelskou i „matematickou“.</p>
+<table><tr><th>Cíl</th><th>Podmínka (při 6 letech)</th></tr>${goals}</table>
+<h2>Matematické okruhy</h2>
+<table><tr><th>Okruh</th><th>Obsah</th></tr>${T.TOPICS.map(t=>`<tr><td>${t.emoji} <b>${t.name}</b></td><td>${t.hint}</td></tr>`).join('')}</table>
+<p>Obtížnost volí žák: 🟢 lehká (100 Kč, pokuta 30 Kč), 🟡 střední (250 Kč, pokuta 60 Kč), 🔴 těžká (500 Kč, pokuta 150 Kč). Po chybě následuje krátká pauza (3 s, po druhé chybě po sobě 8 s) na přečtení řešení a otázky ano/ne se honorují polovinou, takže tipování se nevyplácí. Žák tak sám rozhoduje o riziku – a zároveň se učí odhadnout vlastní schopnosti. Po dvou chybách hra doporučí lehčí úlohu, po sérii úspěchů těžší.</p>
+<h2>Po hodině</h2>
+<ul><li>Na závěrečné obrazovce je přehled <b>úspěšnosti podle témat</b> – ukáže, co třída potřebuje zopakovat.</li>
+<li>Tlačítkem <b>Stáhnout výsledky (CSV)</b> získáte tabulku po žácích (správně/chyb v každém tématu, výdělek, série).</li>
+<li>Ocenění (největší výdělkář, přesný střelec, král série…) oceňují různé typy úspěchu, ne jen rychlost.</li></ul>
+<h2>Tipy</h2>
+<ul><li>Pauza ⏸ zastaví čas v práci i rozhodování (např. při ruchu ve třídě).</li>
+<li>Žáci smí na papíře počítat – úlohy jsou navržené pro tužku a papír, ne pro kalkulačku.</li>
+<li>Číselné odpovědi lze psát i zlomkem (3/4) nebo desetinným číslem (0,75).</li></ul>`;
+</script></body></html>

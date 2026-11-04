@@ -4,6 +4,17 @@ Týmová hra pro třídu o **finanční gramotnosti**, ve které si žáci pení
 Inspirováno formátem Climate Rules: učitel hru řídí z počítače (projektor), týmy po 3 hrají na **mobilech**.
 Běží jako čistě statická stránka – stačí **GitHub Pages**, žádný vlastní server ani registrace.
 
+## Novinky v této verzi
+
+- 🤖 **Demo bez telefonů** (úvodní stránka) a tlačítko *Přidat boty* v lobby – učitel si hru vyzkouší sám.
+- ⏸ **Pauza** ve fázi práce i rozhodování.
+- 🔍 **Diagnostika:** na konci přehled úspěšnosti podle témat s doporučením, co zopakovat; osobní přehled pro žáka; **export výsledků žáků do CSV**.
+- 💬 **Otázky do diskuse** ke každé události roku, 🏅 ocenění na konci hry.
+- 💬 **Návrhy v týmu** – členové bez role mohou držiteli role navrhnout krok; přehled „co jste letos udělali“.
+- 📉 **Reálná hodnota majetku** po zohlednění inflace; tipy k volbě obtížnosti (po dvou chybách lehčí, po sérii těžší).
+- 📖 `metodika.html` – metodický list (časový plán, role, události, cíle) k vytištění.
+- ✅ `test/` – kontrola generátorů úloh (`node test/tasks.test.js`) a simulace ekonomiky (`node test/economy.sim.js`).
+
 ## Jak se hraje
 
 Každý **rok** hry má 5 kroků:
@@ -64,8 +75,29 @@ Spojení mezi telefony a učitelským počítačem je **přímé (WebRTC, knihov
 - `tasks.js` – generátory matematických úloh (sem lze snadno přidávat další funkcí `reg(okruh, obtížnosti, název, funkce)`)
 - `engine.js` – pravidla hry (ekonomika, události, role, tajné cíle); ladit čísla lze v konstantách na začátku souboru
 - `host.js` – obrazovka učitele + „server“ hry; `player.js` – obrazovka žáka; `net.js` – spojení
+- `metodika.html`, `manifest.webmanifest`, `og.png` – metodika a náhled při sdílení odkazu
+- `test/` – testy
 - `lib/` – PeerJS a generátor QR kódů (přibaleno, hra nepotřebuje žádné CDN)
 
 ## Ladění ekonomiky
 
 V `engine.js`: `EVENTS` (události), `ASSETS` (podniky, výnosy a rizika), `BASE`/`PEN` (odměny a pokuty za úlohy), `LIVING` (životní náklady), `GOALS` (tajné cíle a jejich prahy).
+
+### Novinky – 3. kolo (ekonom, učitel, UX, UI)
+- **Ekonomika:** pojištění 300 Kč, nasycení trhu (každý další kus téhož majetku vynáší o 12 % méně), životní náklady podle počtu členů týmu, přeladěné výnosy dílny a tech, méně lokálních událostí.
+- **Učitel:** výběr povolených obtížností, u každého týmu počet vyřešených úloh na člena a upozornění na neaktivní, tlačítko „Všichni hotovi“, celá obrazovka pro projektor.
+- **UX:** týmové tlačítko „Jsme hotovi“, jednorázové nápovědy v 1. roce, vysvětlení nasycení trhu, blesk při změně peněz.
+- **UI:** dotykové cíle ≥ 44 px, viditelný focus, větší písmo na projektoru, podpora vyššího kontrastu.
+- **Testy:** `node test/rules.test.js` (invarianty pravidel) vedle `tasks.test.js` a `economy.sim.js`.
+
+### Novinky – 4. kolo (marketing, didaktik, znuděný žák, matematik)
+- **Matematika:** opravena chybná správná odpověď u úlohy √((x+k)²) pro x < −k (hra uznávala 4 − x místo −x − 4); nesmyslný distraktor „vyvrácená podmínka“ nahrazen. Nový `test/algebra.verify.js` nezávisle numericky ověřuje ~2 000 algebraických úloh (správná je právě jedna volba).
+- **Žák:** úlohy se neopakují (40 posledních zadání, stejný typ max. 1× za 4 úlohy, téma nikdy 2× po sobě); na telefonu je živé pořadí týmů.
+- **Didaktik:** každá zhruba třetí úloha se vrací k žákovu nejslabšímu tématu (značka „🔁 Procvičení“).
+- **Proti tipování:** chyba v lehké úloze stojí 30 Kč, ano/ne úlohy dávají poloviční odměnu, po chybě následuje pauza 3 s (8 s po druhé chybě po sobě) na přečtení řešení.
+- **Marketing:** úvod uvádí délku, počet žáků a požadavky; rozlišení hlavního a vedlejšího tlačítka; přesné vyjádření k ochraně dat (veřejný PeerJS broker vidí jen anonymní kód hry).
+
+
+### Vizuál – 5. kolo (zelený fintech styl)
+- Tmavě zelené přechody s limetkovým akcentem, skleněné karty, velké zaoblení, pilulková tlačítka, font **Plus Jakarta Sans** (SIL Open Font License, uložen lokálně v `lib/fonts/`, takže funguje i offline).
+- Barvy jsou tokeny na začátku `style.css` (`--lime`, `--bg`, `--panel`…), změna palety je otázka pár řádků.

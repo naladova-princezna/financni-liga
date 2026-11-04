@@ -14,10 +14,11 @@ const Host = {
   S: null, peer: null, conns: {}, status: 'Připojuji se k serveru…', ready: false, lastRender: 0, tickN: 0, overlay: null,
 
   /* ---------- start ---------- */
-  start() {
+  start(opts) {
+    this.demo = !!(opts && opts.demo);
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch (e) { }
-    if (saved && saved.S && Date.now() - saved.at < 12 * 3600e3 && saved.S.phase !== 'final') {
+    if (!this.demo && saved && saved.S && Date.now() - saved.at < 12 * 3600e3 && saved.S.phase !== 'final') {
       $('#app').innerHTML = `<div class="center-card"><h1>💰 Finanční liga</h1><p>Našel jsem rozehranou hru <b>${esc(saved.S.code)}</b> (rok ${saved.S.year || '–'}, ${Object.keys(saved.S.players).length} hráčů).</p>
         <div class="row"><button class="btn big" data-h="resume">↩ Pokračovat v rozehrané hře</button><button class="btn big ghost" data-h="fresh">✨ Začít novou hru</button></div></div>`;
       this.bind();
@@ -28,7 +29,7 @@ const Host = {
   begin(saved) {
     if (saved) { this.S = saved.S; Object.values(this.S.players).forEach(p => { p.online = false; p.lastSeen = Date.now(); }); if (this.S.endsAt) this.S.endsAt = Date.now() + 60000; this.restoring = true; }
     else this.S = E.newState(Net.newCode());
-    this.bind(); this.openPeer(); this.render();
+    this.bind(); this.openPeer(); if (this.demo && !saved) this.addBots(5); this.render();
     clearInterval(this._tick); this._tick = setInterval(() => this.tick(), 1000);
   },
   bind() {
@@ -90,12 +91,54 @@ const Host = {
   tick() {
     const S = this.S; this.tickN++;
     const now = Date.now(); let dirty = false;
-    for (const p of Object.values(S.players)) { if (p.online && now - p.lastSeen > 22000) { p.online = false; dirty = true; } }
+    for (const p of Object.values(S.players)) { if (p.bot) { p.online = true; p.lastSeen = now; continue; } if (p.online && now - p.lastSeen > 22000) { p.online = false; dirty = true; } }
     if ((S.phase === 'work' || S.phase === 'decide') && S.endsAt && now >= S.endsAt) { E.next(S); dirty = true; }
+    if (this.botTick(now)) dirty = true;
     if (this.tickN % 5 === 0) for (const pid of Object.keys(this.conns)) this.send(pid, { t: 'hb', now });
     if (dirty) this.changed();
-    const el = $('#h-timer'); if (el) el.textContent = S.endsAt ? Net.fmtTime(S.endsAt - now) : '';
+    const el = $('#h-timer'); if (el) el.textContent = S.paused ? '⏸ ' + Net.fmtTime(S.pauseLeft) : (S.endsAt ? Net.fmtTime(S.endsAt - now) : '');
     if (el) el.classList.toggle('warn', !!S.endsAt && S.endsAt - now < 30000);
+  },
+
+  /* ---------- boti (demo / náhled) ---------- */
+  addBots(n) {
+    const S = this.S, names = ['Bot Eliška', 'Bot Tomáš', 'Bot Karolína', 'Bot Matyáš', 'Bot Sofie', 'Bot Jakub', 'Bot Anežka', 'Bot Vojta', 'Bot Klára', 'Bot Ondra', 'Bot Lucie', 'Bot Adam'];
+    const have = Object.values(S.players).filter(p => p.bot).length;
+    for (let i = 0; i < n; i++) { const p = E.joinPlayer(S, 'bot-' + Math.random().toString(36).slice(2), names[(have + i) % names.length]); p.bot = true; p.online = true; p.nextAt = 0; }
+    E.autoAssign(S);
+  },
+  botTick(now) {
+    const S = this.S; let dirty = false;
+    for (const p of Object.values(S.players)) {
+      if (!p.bot || !p.teamId) continue;
+      if (S.phase === 'work' && !S.paused) {
+        if (!p.nextAt || now < p.nextAt) { if (!p.nextAt) p.nextAt = now + 1500 + Math.random() * 3000; continue; }
+        if (!p.task) { E.giveTask(S, p.id, [1, 1, 2, 2, 3][Math.floor(Math.random() * 5)]); p.nextAt = now + 4000 + Math.random() * 7000; dirty = true; }
+        else {
+          const k = p.task, good = Math.random() < ({ 1: .9, 2: .72, 3: .45 }[k.diff]);
+          const a = k.type === 'mc' ? (good ? k.correct : (k.correct + 1) % k.choices.length) : (good ? String(k.ans) : '999');
+          E.answerTask(S, p.id, { id: k.id, a }); p.nextAt = now + 1500 + Math.random() * 2500; dirty = true;
+        }
+      } else if (S.phase === 'decide' && !S.paused && p._acted !== S.year) {
+        p._acted = S.year; const t = E.teamOf(S, p.id), pr = E.prices(S), role = E.ROLES[t.members.indexOf(p.id)].key;
+        const act = (a, arg) => E.handle(S, p.id, { t: 'act', a, arg });
+        if (role === 'ceo') { const opt = E.ASSETS.filter(x => t.money - pr.assets[x.id] > 500).sort((a, b) => (b.mean / (.05 + b.sd)) - (a.mean / (.05 + a.sd)))[0]; if (opt) act('buy', opt.id); }
+        if (role === 'cfo') { if (t.loan > 0 && t.money > 1500) act('repay', 'all'); else if (t.money > 1200) act('deposit', 500); }
+        if (role === 'adm') { act('insure'); if (t.train < 2 && t.money > pr.train[t.train] + 800) act('train'); }
+        dirty = true;
+      }
+    }
+    return dirty;
+  },
+  exportCsv() {
+    const S = this.S, ts = T.TOPICS; const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+    const rows = [['Hráč', 'Tým', 'Role', 'Správně', 'Chyb', 'Úspěšnost %', 'Vydělal Kč', 'Nejdelší série'].concat(ts.map(t => t.name + ' (✓/✗)'))];
+    Object.values(S.players).filter(p => !p.bot).forEach(p => {
+      const t = S.teams.find(x => x.id === p.teamId), n = p.correct + p.wrong;
+      rows.push([p.name, t ? t.name : '', t ? E.ROLES[t.members.indexOf(p.id)].name : '', p.correct, p.wrong, n ? Math.round(100 * p.correct / n) : '', p.earned, p.best].concat(ts.map(x => { const st = p.stats[x.id]; return st ? st.c + '/' + st.w : ''; })));
+    });
+    const csv = '\ufeff' + rows.map(r => r.map(q).join(';')).join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); a.download = 'financni-liga-vysledky.csv'; document.body.appendChild(a); a.click(); a.remove();
   },
 
   /* ---------- ovládání ---------- */
@@ -107,6 +150,11 @@ const Host = {
       if (S.phase === 'final' && !confirm('Začít novou hru se stejnými týmy?')) return;
       const err = E.next(S); if (err) alert(err); this.changed(); return;
     }
+    if (a === 'bots') { this.addBots(6); this.changed(); return; }
+    if (a === 'nobots') { Object.values(S.players).filter(p => p.bot).forEach(p => { E.leaveTeam(S, p.id); delete S.players[p.id]; }); this.changed(); return; }
+    if (a === 'pause') { E.togglePause(S); this.changed(); return; }
+    if (a === 'fs') { try { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); } catch (e) { } return; }
+    if (a === 'csv') { this.exportCsv(); return; }
     if (a === 'assign') { E.autoAssign(S); this.changed(); return; }
     if (a === 'plus') { if (S.endsAt) S.endsAt += 30000; this.changed(); return; }
     if (a === 'qr') { this.overlay = this.overlay === 'qr' ? null : 'qr'; this.render(true); return; }
@@ -116,6 +164,7 @@ const Host = {
   onSetting(el) {
     const S = this.S, k = el.dataset.set;
     if (k === 'topic') { const id = el.value; const set = new Set(S.settings.topics); if (el.checked) set.add(id); else set.delete(id); if (!set.size) { set.add(id); el.checked = true; } S.settings.topics = T.TOPICS.map(t => t.id).filter(x => set.has(x)); }
+    else if (k === 'diffs') S.settings.diffs = el.value.split(',').map(Number);
     else S.settings[k] = +el.value;
     this.save(); this.render();
   },
@@ -147,12 +196,13 @@ const Host = {
             <label>Počet let<select data-set="years">${[4, 5, 6, 7, 8, 10].map(n => `<option value="${n}" ${S.settings.years === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
             <label>Práce v roce<select data-set="workSec">${[120, 180, 240, 300, 420, 600].map(n => `<option value="${n}" ${S.settings.workSec === n ? 'selected' : ''}>${n / 60} min</option>`).join('')}</select></label>
             <label>Rozhodování<select data-set="decideSec">${[60, 90, 150, 210, 300].map(n => `<option value="${n}" ${S.settings.decideSec === n ? 'selected' : ''}>${n >= 60 ? (n / 60).toString().replace('.', ',') : n} min</option>`).join('')}</select></label>
+            <label>Obtížnosti úloh<select data-set="diffs">${[['1,2,3', 'Všechny'], ['1,2', 'Lehká + střední'], ['2,3', 'Střední + těžká'], ['1', 'Jen lehká'], ['2', 'Jen střední'], ['3', 'Jen těžká']].map(([v, n]) => `<option value="${v}" ${S.settings.diffs.join() === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
             <label>Startovní kapitál<select data-set="startMoney">${[1000, 2000, 3000, 5000].map(n => `<option value="${n}" ${S.settings.startMoney === n ? 'selected' : ''}>${kc(n)}</option>`).join('')}</select></label>
           </div>
           <div class="topics">${T.TOPICS.map(t => `<label class="chip"><input type="checkbox" data-set="topic" value="${t.id}" ${S.settings.topics.includes(t.id) ? 'checked' : ''}><span>${t.emoji} ${t.name}</span></label>`).join('')}</div>
         </section>
         <section class="panel grow"><h3>👥 Týmy a hráči <span id="lobbyCount" class="count"></span></h3><div id="lobbyTeams" class="lobby-teams"></div>
-          <div class="row"><button class="btn ghost" data-h="assign">🎲 Rozdělit nepřiřazené po 3</button><button id="startBtn" class="btn big" data-h="next">▶ Spustit hru</button></div></section>
+          <div class="row"><button class="btn ghost" data-h="assign">🎲 Rozdělit nepřiřazené po 3</button><button class="btn ghost" data-h="bots" title="Virtuální hráči – hra se dá vyzkoušet i bez telefonů">🤖 Přidat boty</button>${Object.values(S.players).some(p => p.bot) ? '<button class="btn ghost" data-h="nobots">Odebrat boty</button>' : ''}<button id="startBtn" class="btn big" data-h="next">▶ Spustit hru</button></div></section>
       </div></div>`;
   },
   updateLobby() {
@@ -168,6 +218,7 @@ const Host = {
       ${t.members.length < 3 ? `<div class="lt-free">volných míst: ${3 - t.members.length}</div>` : ''}</div>`).join(''))
       + (free.length ? `<div class="lteam free"><div class="lt-h"><b>Bez týmu</b><span class="mut">${free.length}</span></div>${free.map(p => `<div class="lt-m">${dot(p)} ${esc(p.name)} <button class="x" data-h="kick" data-pid="${p.id}">✕</button></div>`).join('')}</div>` : '')
       || '<div class="empty">Zatím nikdo. Naskenuj QR kód telefonem 📱</div>';
+    const nb = $('[data-h=nobots]'), hasBots = players.some(p => p.bot); if (nb && !hasBots) nb.remove(); if (!nb && hasBots) { const b = document.createElement('button'); b.className = 'btn ghost'; b.dataset.h = 'nobots'; b.textContent = 'Odebrat boty'; const bb = $('[data-h=bots]'); bb && bb.after(b); }
     const sb = $('#startBtn'); if (sb) sb.disabled = !players.length;
   },
 
@@ -178,7 +229,8 @@ const Host = {
     const badges = `${t.insuredYear === S.year && S.phase !== 'result' ? '<span class="bd">☂️</span>' : ''}${t.train ? `<span class="bd">🎓${t.train}</span>` : ''}`;
     const members = t.members.map(id => `<span class="mem"><i class="dot ${P[id].online ? 'on' : ''}"></i>${esc(P[id].name)}</span>`).join('');
     let extra = '';
-    if (mode === 'work') extra = `<div class="work-line"><span>✅ ${t.yc}</span><span>❌ ${t.yw}</span><span class="earn">+${kc(t.earnedYear)}</span></div>`;
+    if (mode === 'work') extra = `<div class="work-line"><span>✅ ${t.yc}</span><span>❌ ${t.yw}</span><span class="earn">+${kc(t.earnedYear)}</span></div><div class="act">${t.members.map(id => { const p = P[id], idle = !p.yn && S.endsAt && S.endsAt - Date.now() < (S.settings.workSec - 60) * 1000; return `<span class="${idle ? 'idle' : ''}">${idle ? '⚠️ ' : ''}${esc(p.name)} <b>${p.yn || 0}</b></span>`; }).join('')}</div>`;
+    if (mode === 'plain' && S.phase === 'decide') extra = `<div class="ready ${t.ready ? 'yes' : ''}">${t.ready ? '✅ Hotovo' : '⏳ Rozhodují se…'}</div>`;
     if (mode === 'result' && t.last) {
       const L = t.last, loc = L.local ? `<div class="loc ${L.local.type}${L.local.insured ? ' safe' : ''}">${L.local.emoji} ${esc(L.local.name)} ${L.local.type === 'loss' ? (L.local.insured ? '– pojištěno ✓' : '−' + kc(L.local.amt)) : '+' + kc(L.local.amt)}</div>` : '';
       extra = `<div class="delta ${L.delta >= 0 ? 'up' : 'down'}">${L.delta >= 0 ? '▲ +' : '▼ '}${kc(L.delta)}</div>${loc}`;
@@ -195,16 +247,17 @@ const Host = {
     const mods = Object.entries(ev.mods || {}).filter(([, v]) => v).map(([k, v]) => `<span class="chip2 ${v > 0 ? 'up' : 'down'}">${E.ASSET_BY[k].emoji} ${v > 0 ? '+' : '−'}${Math.abs(Math.round(v * 100))} %</span>`).join('');
     return `<div class="evcard ${compact ? 'compact' : ''}"><div class="ev-ic">${ev.emoji}</div><div class="ev-b"><div class="ev-k">Událost roku ${S.year}</div><h2>${esc(ev.name)}</h2><p>${esc(ev.text)}</p>
       <div class="chips"><span class="chip2">📈 Inflace <b>${ev.infl} %</b></span><span class="chip2">🐷 Spoření <b>${String(ev.save).replace('.', ',')} %</b></span><span class="chip2">🏦 Úvěr <b>${ev.loan} %</b></span><span class="chip2">🧾 Daň <b>${ev.tax} %</b></span>${ev.rew && ev.rew !== 1 ? `<span class="chip2 ${ev.rew > 1 ? 'up' : 'down'}">⚒️ Odměny ${ev.rew > 1 ? '+' : '−'}${Math.abs(Math.round((ev.rew - 1) * 100))} %</span>` : ''}${ev.trainDiscount ? '<span class="chip2 up">🎓 Školení −50 %</span>' : ''}${mods}<span class="chip2">🛒 Ceny od začátku +${idxPct} %</span></div>
-      ${S.phase === 'result' && !compact ? `<div class="lesson">💡 <b>Poučení:</b> ${esc(ev.lesson)}</div>` : ''}</div></div>`;
+      ${S.phase === 'result' && !compact ? `<div class="lesson">💡 <b>Poučení:</b> ${esc(ev.lesson)}</div>${ev.q ? `<div class="lesson disc">💬 <b>Otázka do diskuse:</b> ${esc(ev.q)}</div>` : ''}` : ''}</div></div>`;
   },
   gameHtml() {
     const S = this.S; const now = Date.now();
     const online = Object.values(S.players).filter(p => p.online).length;
-    const label = NEXT_LABEL[S.phase] === null ? (S.year >= S.settings.years ? '🏁 Vyhodnotit hru' : '➡ Další rok') : NEXT_LABEL[S.phase];
+    const allReady = S.phase === 'decide' && S.teams.length && S.teams.every(t => t.ready);
+    const label = allReady ? '✅ Všichni hotovi – uzavřít rok' : NEXT_LABEL[S.phase] === null ? (S.year >= S.settings.years ? '🏁 Vyhodnotit hru' : '➡ Další rok') : NEXT_LABEL[S.phase];
     const dots = Array.from({ length: S.settings.years }, (_, i) => `<i class="${i + 1 < S.year || (i + 1 === S.year && S.phase === 'result') ? 'done' : i + 1 === S.year ? 'cur' : ''}"></i>`).join('');
-    const head = `<header class="h-head"><div class="h-l"><div class="logo sm">💰 Finanční liga</div><button class="code-chip" data-h="qr" title="Zobrazit QR kód pro nově příchozí">📱 ${S.code}</button></div>
+    const head = `<header class="h-head"><div class="h-l"><div class="logo sm">💰 Finanční liga</div><button class="code-chip" data-h="qr" title="Zobrazit QR kód pro nově příchozí">📱 ${S.code}</button><button class="code-chip" data-h="fs" title="Celá obrazovka">⛶</button></div>
       <div class="h-c"><div class="years">${dots}</div><div class="phase">${S.phase === 'final' ? PHASE.final : `Rok ${S.year}/${S.settings.years} · ${PHASE[S.phase]}`}</div></div>
-      <div class="h-r"><div id="h-timer" class="timer">${S.endsAt ? Net.fmtTime(S.endsAt - now) : ''}</div><div class="online ${online < Object.keys(S.players).length ? 'warn' : ''}">📶 ${online}/${Object.keys(S.players).length}</div></div></header>`;
+      <div class="h-r"><div id="h-timer" class="timer">${S.paused ? '⏸ ' + Net.fmtTime(S.pauseLeft) : (S.endsAt ? Net.fmtTime(S.endsAt - now) : '')}</div><div class="online ${online < Object.keys(S.players).length ? 'warn' : ''}">📶 ${online}/${Object.keys(S.players).length}</div></div></header>`;
     let body = '';
     const ranked = S.teams.slice().sort((a, b) => E.net(b) - E.net(a)); const rk = t => ranked.indexOf(t) + 1;
     if (S.phase === 'event') body = `${this.eventCard()}<div class="hint-bar">👀 Přečtěte si událost a domluvte se v týmu. Až budete připraveni, učitel zahájí práci.</div><div class="grid">${S.teams.map(t => this.teamCard(t, 'plain', null)).join('')}</div>`;
@@ -212,7 +265,7 @@ const Host = {
     else if (S.phase === 'decide') body = `${this.eventCard(true)}<div class="hint-bar big">🤝 Rozhodněte se společně: investovat, spořit, půjčit si, pojistit se, vzdělávat se…</div><div class="grid">${S.teams.map(t => this.teamCard(t, 'plain', null)).join('')}</div>`;
     else if (S.phase === 'result') body = `${this.eventCard()}<div class="grid">${S.teams.map(t => this.teamCard(t, 'result', rk(t))).join('')}</div>`;
     else if (S.phase === 'final') body = this.finalHtml();
-    const foot = `<footer class="h-foot">${S.endsAt ? '<button class="btn ghost" data-h="plus">+30 s</button>' : ''}<button class="btn big" data-h="next">${label}</button>${S.phase !== 'final' ? '<button class="btn ghost small" data-h="endgame">✕ Ukončit</button>' : ''}</footer>`;
+    const foot = `<footer class="h-foot">${S.phase === 'work' || S.phase === 'decide' ? `<button class="btn ghost" data-h="pause">${S.paused ? '▶ Pokračovat' : '⏸ Pauza'}</button>` : ''}${S.endsAt ? '<button class="btn ghost" data-h="plus">+30 s</button>' : ''}<button class="btn big" data-h="next">${label}</button>${S.phase !== 'final' ? '<button class="btn ghost small" data-h="endgame">✕ Ukončit</button>' : ''}</footer>`;
     return `<div class="host">${head}<main class="h-main">${body}</main>${foot}</div>`;
   },
   finalHtml() {
@@ -225,7 +278,19 @@ const Host = {
         <div class="fr-net"><b>${kc(r.net)}</b><span>čisté jmění</span><span class="mut">${r.correct} ✓ / ${r.wrong} ✗</span></div></div>`;
     }).join('');
     return `<div class="final"><h1>🏆 Výsledky</h1><p class="sub">Vyhrává se plněním tajných cílů – bohatství rozhoduje až při shodě.</p>${rows}
+      ${this.awardsHtml()}${this.topicReport()}
+      <div class="row center"><button class="btn ghost" data-h="csv">⬇ Stáhnout výsledky žáků (CSV)</button></div>
       <div class="lesson big">💬 <b>Diskuse:</b> Která rozhodnutí vám v tomhle roce nejvíc pomohla? Co byste udělali jinak? Jak by vypadala hra při jiné inflaci?</div></div>`;
+  },
+  awardsHtml() {
+    const A = this.S.awards || []; if (!A.length) return '';
+    return `<h3 class="sech">🏅 Ocenění</h3><div class="awards">${A.map(a => `<div class="award"><div class="ae">${a.emoji}</div><div><b>${a.title}</b><div>${esc(a.name)}</div><div class="mut">${esc(a.detail)}</div></div></div>`).join('')}</div>`;
+  },
+  topicReport() {
+    const S = this.S, rows = T.TOPICS.map(t => { const x = S.topicStats[t.id] || { c: 0, w: 0 }, n = x.c + x.w; return { t, n, pct: n ? Math.round(100 * x.c / n) : null }; }).filter(r => r.n);
+    if (!rows.length) return '';
+    const weak = rows.filter(r => r.n >= 5).sort((a, b) => a.pct - b.pct)[0];
+    return `<h3 class="sech">🔍 Kde se třída trápila</h3><div class="topicrep">${rows.map(r => `<div class="tr"><span>${r.t.emoji} ${r.t.name}</span><div class="tbar"><i style="width:${r.pct}%;background:${r.pct >= 75 ? 'var(--green)' : r.pct >= 50 ? 'var(--gold)' : 'var(--red)'}"></i></div><b>${r.pct} %</b><span class="mut">${r.n} úl.</span></div>`).join('')}</div>${weak && weak.pct < 75 ? `<p class="mut center">Doporučení: zopakujte <b>${weak.t.emoji} ${weak.t.name}</b> (${weak.t.hint}) – úspěšnost jen ${weak.pct} %.</p>` : ''}`;
   },
   paintOverlay() {
     let o = $('#overlay');
