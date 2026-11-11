@@ -250,8 +250,8 @@ const Host = {
   },
   raceHtml() {
     const S = this.S, nets = S.teams.map(t => E.net(t)), lo = Math.min(S.settings.startMoney, ...nets) - 150, hi = Math.max(...nets, S.settings.startMoney) + 150;
-    const lanes = S.teams.map(t => { const n = E.net(t), p = 4 + 88 * (n - lo) / ((hi - lo) || 1); return `<div class="lane"><div class="track"><div class="runner" style="left:${p.toFixed(1)}%;--c:${t.color}"><span class="rn">${t.emoji}</span><b>${kc(n)}</b></div></div></div>`; }).join('');
-    return `<div class="race"><div class="flag">🏁</div>${lanes}</div>`;
+    const lanes = S.teams.map(t => { const n = E.net(t), p = 4 + 88 * (n - lo) / ((hi - lo) || 1); return `<div class="lane"><span class="ln" title="${esc(t.name)}">${esc(t.name)}</span><div class="track"><div class="runner" style="left:${p.toFixed(1)}%;--c:${t.color}"><span class="rn">${t.emoji}</span><b>${kc(n)}</b></div></div></div>`; }).join('');
+    return `<div class="race"><div class="race-h"><b>🏁 Závod týmů o největší jmění</b><span>Kdo má víc peněz, je víc vpředu. Posun se mění po každé správné odpovědi.</span></div>${lanes}<div class="race-f"><span>méně peněz</span><i></i><span>více peněz 🏁</span></div></div>`;
   },
   gameHtml() {
     const S = this.S; const now = Date.now();

@@ -6,6 +6,7 @@
 const E = root.Engine, T = root.Tasks, Net = root.Net;
 const $ = (s, r = document) => r.querySelector(s);
 const esc = E.esc, kc = E.kc;
+const M = s => (root.Mathfmt ? root.Mathfmt.html(s) : s);
 const LS = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } } };
 const TOPIC = Object.fromEntries(T.TOPICS.map(t => [t.id, t]));
 const DIFF = { 1: { e: '🟢', n: 'Lehká' }, 2: { e: '🟡', n: 'Střední' }, 3: { e: '🔴', n: 'Těžká' } };
@@ -37,27 +38,42 @@ const Player = {
   },
 
   /* ---------- síť ---------- */
-  connect() {
+  connect(fresh) {
     const gen = ++this.gen; clearTimeout(this._retry); clearTimeout(this._to);
-    this.connected = false; this.status = `Připojuji se ke hře ${this.code}…`; this.render();
-    try { this.peer && this.peer.destroy(); } catch (e) { }
-    let peer; try { peer = this.peer = Net.makePeer(); } catch (e) { return this.lost(gen, 'Nepodařilo se spustit spojení.'); }
-    this._to = setTimeout(() => { if (gen === this.gen && !this.connected) this.lost(gen, 'Spojení trvá příliš dlouho… Zkouším znovu.'); }, 15000);
-    peer.on('open', () => {
+    this.connected = false; this.tries = (this.tries || 0) + 1;
+    if (!this.t0) this.t0 = Date.now();
+    this.status = '1/3 Navazuji spojení se serverem…'; this.render();
+    try { this.conn && this.conn.close(); } catch (e) { }
+    const reuse = !fresh && this.peer && !this.peer.destroyed && this.peer.open;
+    const dial = () => {
       if (gen !== this.gen) return;
-      const c = this.conn = peer.connect(Net.peerId(this.code), { reliable: true, serialization: 'json' });
-      c.on('open', () => { if (gen !== this.gen) return; this.connected = true; this.lastMsg = Date.now(); clearTimeout(this._to); c.send({ t: 'join', code: this.code, token: this.token, name: this.name }); });
+      this.status = `2/3 Hledám hru ${this.code}…`; this.render();
+      let c; try { c = this.conn = this.peer.connect(Net.peerId(this.code), { reliable: true, serialization: 'json' }); } catch (e) { return this.lost(gen, 'Nepodařilo se navázat spojení.', true); }
+      c.on('open', () => { if (gen !== this.gen) return; this.connected = true; this.tries = 0; this.t0 = 0; this.lastMsg = Date.now(); clearTimeout(this._to); this.status = '3/3 Přihlašuji…'; c.send({ t: 'join', code: this.code, token: this.token, name: this.name }); });
       c.on('data', m => this.onMsg(m, gen));
       c.on('close', () => this.lost(gen, 'Spojení s učitelem se přerušilo.'));
       c.on('error', () => this.lost(gen, 'Chyba spojení.'));
+    };
+    /* čas na navázání: první pokus je velkorysý (veřejný server i WebRTC bývají pomalé), další kratší */
+    this._to = setTimeout(() => { if (gen === this.gen && !this.connected) this.lost(gen, 'Spojení trvá déle, než by mělo. Zkouším znovu…', !(this.peer && this.peer.open)); }, reuse ? 20000 : 35000);
+    if (reuse) return dial();
+    try { this.peer && this.peer.destroy(); } catch (e) { }
+    let peer; try { peer = this.peer = Net.makePeer(); } catch (e) { return this.lost(gen, 'Nepodařilo se spustit spojení. Zkus stránku načíst znovu.', true); }
+    peer.on('open', dial);
+    peer.on('disconnected', () => { if (gen === this.gen && !peer.destroyed && !peer.open) { try { peer.reconnect(); } catch (e) { } } });
+    peer.on('error', e => {
+      if (gen !== this.gen) return;
+      if (e.type === 'peer-unavailable') return this.lost(gen, `Hra s kódem ${this.code} zatím není vidět. Zkontroluj kód, nebo počkej, až učitel hru spustí.`);
+      this.lost(gen, `Chyba spojení (${e.type}).`, true);
     });
-    peer.on('error', e => { if (gen !== this.gen) return; this.lost(gen, e.type === 'peer-unavailable' ? `Hra s kódem ${this.code} nebyla nalezena. Zkontroluj kód, nebo počkej, až učitel hru spustí.` : `Chyba spojení (${e.type}).`); });
   },
-  lost(gen, msg) {
+  lost(gen, msg, fresh) {
     if (gen !== this.gen) return;
-    this.connected = false; this.status = msg; this.render();
-    clearTimeout(this._retry); this._retry = setTimeout(() => this.connect(), 3000);
+    this.connected = false; this.status = msg; if (fresh) { try { this.peer && this.peer.destroy(); } catch (e) { } this.peer = null; }
+    this.render();
+    clearTimeout(this._retry); this._retry = setTimeout(() => this.connect(fresh), Math.min(2000 + 1000 * (this.tries || 0), 6000));
   },
+  retryNow() { this.tries = 0; this.t0 = 0; try { this.peer && this.peer.destroy(); } catch (e) { } this.peer = null; this.connect(true); },
   send(m) { if (this.conn && this.conn.open) { try { this.conn.send(m); return true; } catch (e) { } } return false; },
   onMsg(m, gen) {
     if (gen !== this.gen || !m) return; this.lastMsg = Date.now();
@@ -81,6 +97,7 @@ const Player = {
       case 'emoji': this.ui.emoji = d.e; document.querySelectorAll('.em').forEach(x => x.classList.toggle('sel', x.dataset.e === d.e)); break;
       case 'create': { const v = ($('#teamName') || {}).value || ''; this.send({ t: 'team:create', name: v, emoji: this.ui.emoji }); this.ui.creating = false; break; }
       case 'join': this.send({ t: 'team:join', teamId: d.t }); break;
+      case 'retry': this.retryNow(); break;
       case 'leave': this.send({ t: 'team:leave' }); break;
       case 'get': this.send({ t: 'task:get', diff: +d.d }); break;
       case 'ans': if (this.pending || !S.task) return; this.pending = true; document.querySelectorAll('.choice').forEach(x => x.disabled = true); b.classList && b.classList.add('picked'); this.send({ t: 'task:answer', id: S.task.id, a: +d.i }); break;
@@ -115,7 +132,7 @@ const Player = {
       if (!$('#nameIn')) { app.innerHTML = `<div class="phone center"><div class="logo">💰 Finanční liga</div><div class="card"><h2>Připojuješ se ke hře <span class="codebig">${esc(this.code)}</span></h2><label class="fld">Jak ti máme říkat?<input id="nameIn" maxlength="16" placeholder="Tvoje jméno" autocomplete="nickname"></label><button class="btn big" data-a="setname">Vstoupit do hry →</button></div></div>`; setTimeout(() => { const i = $('#nameIn'); i && i.focus(); }, 50); }
       return;
     }
-    if (!this.S) { app.innerHTML = `<div class="phone center"><div class="logo">💰 Finanční liga</div><div class="card"><div class="spinner"></div><p>${esc(this.status || 'Připojuji se…')}</p><p class="mut">Hra: <b>${esc(this.code)}</b> · ${esc(this.name)}</p><button class="btn ghost" onclick="Player.name='';localStorage.removeItem('fl_name');Player.gen++;Player.render()">Změnit jméno</button></div></div>`; this._sig = ''; return; }
+    if (!this.S) { app.innerHTML = `<div class="phone center"><div class="logo">💰 Finanční liga</div><div class="card"><div class="spinner"></div><p>${esc(this.status || 'Připojuji se…')}</p>${this.tries >= 2 || (this.t0 && Date.now() - this.t0 > 25000) ? '<div class="conn-help"><b>Nejde to?</b><br>• přepni mezi Wi‑Fi školy a mobilními daty<br>• vypni VPN a úsporu dat<br>• zkontroluj, že učitel hru už spustil<br><button class="btn" data-a="retry">Zkusit znovu</button></div>' : ''}<p class="mut">Hra: <b>${esc(this.code)}</b> · ${esc(this.name)}</p><button class="btn ghost" onclick="Player.name='';localStorage.removeItem('fl_name');Player.gen++;Player.render()">Změnit jméno</button></div></div>`; this._sig = ''; return; }
     if (!$('#ph-main')) { app.innerHTML = `<div class="phone"><div id="ph-top"></div><div id="ph-banner"></div><div id="ph-main"></div><nav id="ph-tabs"></nav></div>`; this._sig = ''; }
     this.paintTop(); this.paintTabs();
     const bn = $('#ph-banner'); const msg = !this.connected ? `⚠️ ${this.status || 'Spojení přerušeno'} – připojuji znovu…` : '';
@@ -195,7 +212,7 @@ const Player = {
     const mods = Object.entries(ev.mods || {}).filter(([, v]) => v).map(([k, v]) => T(E.ASSET_BY[k].emoji, sg(v), 'výnos', v > 0 ? 'up' : 'down')).join('');
     return `<div class="etiles">${T('📈', pc(ev.infl), 'inflace')}${T('🐷', pc(ev.save), 'spoření')}${T('🏦', pc(ev.loan), 'úvěr')}${T('🧾', pc(ev.tax), 'daň')}${ev.rew && ev.rew !== 1 ? T('⚒️', sg(ev.rew - 1), 'odměny', ev.rew > 1 ? 'up' : 'down') : ''}${ev.trainDiscount ? T('🎓', '−50 %', 'školení', 'up') : ''}${mods}${idx != null ? T('🛒', '+' + idx + ' %', 'ceny od startu') : ''}</div>`;
   },
-  evCard(S) { const ev = S.event, first = String(ev.text).split(/(?<=[.!?])\s/)[0]; return `<div class="card ev big"><div class="ev-ic">${ev.emoji}</div><h2>${esc(ev.name)}</h2><p class="mut">${esc(first)}</p>${this.evChips(ev)}</div>`; },
+  evCard(S) { const ev = S.event, first = (String(ev.text).match(/^[\s\S]*?[.!?](?=\s|$)/) || [String(ev.text)])[0]; return `<div class="card ev big"><div class="ev-ic">${ev.emoji}</div><h2>${esc(ev.name)}</h2><p class="mut">${esc(first)}</p>${this.evChips(ev)}</div>`; },
   roleCard(S) {
     const r = ROLE[S.me.role]; if (!r) return '';
     return `<div class="card role"><div class="role-ic">${r.emoji}</div><div><b>Tvoje role: ${r.name}</b><div class="mut small">${r.does}</div></div></div>`;
@@ -231,18 +248,18 @@ const Player = {
     if (task) {
       const tp = TOPIC[task.topic] || { emoji: '📐', name: '' };
       let ans;
-      if (task.type === 'mc') ans = `<div class="choices">${task.choices.map((c, i) => `<button class="choice" data-a="ans" data-i="${i}"><span class="ci">${'ABCD'[i]}</span><span class="ct">${c}</span></button>`).join('')}</div>`;
-      else ans = `<div class="numans"><input id="numIn" type="text" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tvoje odpověď"><div class="keys">${['−', '/', ','].map(k => `<button data-a="key" data-k="${k === '−' ? '-' : k}">${k}</button>`).join('')}</div><button id="subBtn" class="btn big" data-a="submit">Odeslat</button></div>${task.hint ? `<p class="mut small">${esc(task.hint)}</p>` : ''}`;
-      return `${rk}<div class="card task d${task.diff}"><div class="tk-h"><span class="chip2">${task.review ? '🔁 ' : ''}${tp.emoji} ${tp.name}</span><span class="dchip d${task.diff}">${DIFF[task.diff].e} +${this.reward(task.diff, task)}</span></div><div class="q">${task.q}</div>${ans}<div class="tk-f">${pips()}<button class="link" data-a="skip">Přeskočit −${E.SKIP_FEE}</button></div></div>`;
+      if (task.type === 'mc') ans = `<div class="choices">${task.choices.map((c, i) => `<button class="choice" data-a="ans" data-i="${i}"><span class="ci">${'ABCD'[i]}</span><span class="ct">${M(c)}</span></button>`).join('')}</div>`;
+      else ans = `<div class="numans"><input id="numIn" type="text" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tvoje odpověď"><div class="keys">${['−', '/', ','].map(k => `<button data-a="key" data-k="${k === '−' ? '-' : k}">${k}</button>`).join('')}</div><button id="subBtn" class="btn big" data-a="submit">Odeslat</button></div>${task.hint ? `<p class="mut small">${M(esc(task.hint))}</p>` : ''}`;
+      return `${rk}<div class="card task d${task.diff}"><div class="tk-h"><span class="chip2">${task.review ? '🔁 ' : ''}${tp.emoji} ${tp.name}</span><span class="dchip d${task.diff}">${DIFF[task.diff].e} +${this.reward(task.diff, task)}</span></div><div class="q">${M(task.q)}</div>${ans}<div class="tk-f">${pips()}<button class="link" data-a="skip">Přeskočit −${E.SKIP_FEE}</button></div></div>`;
     }
     if (res) {
       const d = S.me.diff || 1;
       return `${rk}<div class="card res ${res.ok ? 'ok' : 'bad'}" id="resCard"><div class="res-ic">${res.ok ? '✓' : '✗'}</div>
         <div class="res-m">${res.ok ? '+' + kc(res.reward) : (res.pen ? '−' + kc(res.pen) : '0 Kč')}</div>
         ${res.bonus ? `<div class="bonus-pop">🔥 Série! +${kc(res.bonus)}</div>` : ''}
-        ${res.ok ? '' : `<div class="correct"><small>správně:</small> <b>${res.ansText}</b></div>`}
+        ${res.ok ? '' : `<div class="correct"><small>správně:</small> <b>${M(res.ansText)}</b></div>`}
         ${pips()}
-        ${(res.expl || res.tip) ? `<button class="link why" data-a="why">💡 ${this.showWhy ? 'Skrýt' : 'Proč?'}</button>${this.showWhy ? `<div class="expl"><div class="qecho">${res.q}</div>${res.expl ? res.expl : ''}${res.tip ? `<div class="tip">${res.tip}</div>` : ''}</div>` : ''}` : ''}
+        ${(res.expl || res.tip) ? `<button class="link why" data-a="why">💡 ${this.showWhy ? 'Skrýt' : 'Proč?'}</button>${this.showWhy ? `<div class="expl"><div class="qecho">${M(res.q)}</div>${res.expl ? M(res.expl) : ''}${res.tip ? `<div class="tip">${M(res.tip)}</div>` : ''}</div>` : ''}` : ''}
         <button class="btn big" id="againBtn" data-a="again" data-d="${d}">${DIFF[d].e} Další úloha</button>
         <button class="link" data-a="next">změnit obtížnost</button></div>`;
     }

@@ -198,7 +198,7 @@ reg('mnoziny', 2, 'zápis vlastností', () => {
   const k = pick([2, 3, 4, 5]), n = ri(14, 26);
   const A = []; for (let x = 1; x <= n; x++) if (x % k === 0) A.push(x);
   const wr = [uni(A, [A[A.length - 1] + 1]), A.slice(0, -1), A.map(x => x - 1), A.map(x => x + 1)].filter(a => a.length).map(S);
-  return mc(`Vypište prvky množiny A = {x ∈ ℕ | x ≤ ${n} ∧ x je dělitelné číslem ${k}}.`, S(A), wr, `Násobky čísla ${k} nepřevyšující ${n}.`);
+  return mc(`Vypište prvky množiny $A = \\{x \\in \\mathbb{N} \\mid x \\le ${n} \\land x \\text{ je dělitelné číslem } ${k}\\}$.`, S(A), wr, `Násobky čísla ${k} nepřevyšující ${n}.`);
 });
 const ivStr = i => (i.lc ? '⟨' : '(') + N(i.lo) + '; ' + N(i.hi) + (i.hc ? '⟩' : ')');
 function ivInter(a, b) {
@@ -254,7 +254,7 @@ function hasDupe(f) { if (typeof f === 'string') return false; if (f.neg !== und
 const B01 = b => b ? 1 : 0;
 reg('logika', 1, 'hodnota', () => {
   const f = randF(1), p = R() < .5, q = R() < .5; const v = fev(f, { p, q });
-  return mc(`Je dáno p = ${B01(p)}, q = ${B01(q)} (1 = pravdivý, 0 = nepravdivý). Jakou pravdivostní hodnotu má výrok <b>${fstr(f)}</b>?`, v ? 'Pravdivý (1)' : 'Nepravdivý (0)', [v ? 'Nepravdivý (0)' : 'Pravdivý (1)'],
+  return mc(`Je dáno p = ${B01(p)}, q = ${B01(q)} ($1$ = pravdivý, $0$ = nepravdivý). Jakou pravdivostní hodnotu má výrok <b>${fstr(f)}</b>?`, v ? 'Pravdivý (1)' : 'Nepravdivý (0)', [v ? 'Nepravdivý (0)' : 'Pravdivý (1)'],
     `Dosazením: ${fstr(f)} má hodnotu ${B01(v)}. Připomínka: implikace je nepravdivá jen pro 1 ⇒ 0, konjunkce je pravdivá jen pro 1 ∧ 1, disjunkce je nepravdivá jen pro 0 ∨ 0.`, { n: 1 });
 });
 reg('logika', 1, 'negace jednoduchá', () => {

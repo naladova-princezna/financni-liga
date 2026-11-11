@@ -4,6 +4,12 @@ Týmová hra pro třídu o **finanční gramotnosti**, ve které si žáci pení
 Inspirováno formátem Climate Rules: učitel hru řídí z počítače (projektor), týmy po 3 hrají na **mobilech**.
 Běží jako čistě statická stránka – stačí **GitHub Pages**, žádný vlastní server ani registrace.
 
+## Novinky – 8. kolo (srozumitelný závod, stabilní připojení, správná matematika)
+
+- 🏁 **Závod týmů** má na projektoru nadpis „Závod týmů o největší jmění“, vysvětlení („kdo má víc peněz, je víc vpředu“), jména týmů u drah a popisky konců dráhy.
+- 📐 **Matematická sazba KaTeX** (`lib/katex/`, funguje offline): zlomky, mocniny včetně racionálních exponentů, odmocniny, množinové a logické symboly, intervaly, absolutní hodnota, logaritmy a goniometrie se vysází jako skutečná matematika. Převod z textu zadání dělá `mathfmt.js` (generátory úloh zůstaly beze změny, česká desetinná čárka se zachovává). Ve zdrojích úloh lze navíc psát explicitní TeX mezi `$…$`. Test: `NODE_PATH=…/node_modules node test/mathfmt.test.js` (potřebuje `npm i katex`).
+- 📶 **Spolehlivější připojení telefonu:** odstraněna syntaxe, kterou starší iPhony (Safari < 16.4) nepřečtou a stránka po načtení „spadla“; připojení po neúspěchu znovu používá spojení se serverem místo budování od nuly, ukazuje kroky 1/3–3/3, po dvou neúspěších nabídne tlačítko *Zkusit znovu* s tipy (Wi‑Fi × mobilní data, VPN). Při neočekávané chybě se zobrazí hláška s tlačítkem *Načíst znovu*, ne prázdná stránka. Více STUN serverů; TURN lze nastavit v `config.js`.
+
 ## Novinky v této verzi
 
 - 🤖 **Demo bez telefonů** (úvodní stránka) a tlačítko *Přidat boty* v lobby – učitel si hru vyzkouší sám.

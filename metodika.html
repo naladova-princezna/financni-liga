@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Finanční liga – metodický list</title><link rel="stylesheet" href="style.css"></head>
+<title>Finanční liga – metodický list</title><link rel="stylesheet" href="lib/katex/katex.min.css"><link rel="stylesheet" href="style.css"></head>
 <body><div class="doc" id="doc">Načítám…</div>
-<script src="tasks.js"></script><script src="engine.js"></script>
+<script src="lib/katex/katex.min.js"></script><script src="mathfmt.js"></script><script src="tasks.js"></script><script src="engine.js"></script>
 <script>
 const E=Engine,T=Tasks,kc=E.kc;
 const S={settings:{years:6}};
@@ -32,7 +32,8 @@ ${E.EVENTS.map(e=>{const q=E.DISC[e.id];return `<tr><td>${e.emoji} <b>${e.name}<
 <p>Každý tým dostane jeden cíl. Vyhrává tým, který cíl splní (při shodě rozhoduje čisté jmění). Cíle podporují různé strategie – spořivou, podnikatelskou i „matematickou“.</p>
 <table><tr><th>Cíl</th><th>Podmínka (při 6 letech)</th></tr>${goals}</table>
 <h2>Matematické okruhy</h2>
-<table><tr><th>Okruh</th><th>Obsah</th></tr>${T.TOPICS.map(t=>`<tr><td>${t.emoji} <b>${t.name}</b></td><td>${t.hint}</td></tr>`).join('')}</table>
+<table><tr><th>Okruh</th><th>Obsah</th></tr>${T.TOPICS.map(t=>`<tr><td>${t.emoji} <b>${t.name}</b></td><td>${Mathfmt.html(t.hint)}</td></tr>`).join('')}</table>
+<p><b>Matematický zápis:</b> všechny zadání, možnosti i vysvětlení se sází knihovnou KaTeX (zlomky, mocniny, odmocniny, množinové a logické symboly, intervaly, absolutní hodnota). Desetinná čárka zůstává česká, takže žák odpovídá tak, jak je zvyklý: zlomek <i>3/4</i>, desetinné číslo <i>0,75</i> i <i>0.75</i> se vyhodnotí stejně.</p>
 <p>Obtížnost volí žák: 🟢 lehká (100 Kč, pokuta 30 Kč), 🟡 střední (250 Kč, pokuta 60 Kč), 🔴 těžká (500 Kč, pokuta 150 Kč). Po chybě následuje krátká pauza (3 s, po druhé chybě po sobě 8 s) na přečtení řešení a otázky ano/ne se honorují polovinou, takže tipování se nevyplácí. Žák tak sám rozhoduje o riziku – a zároveň se učí odhadnout vlastní schopnosti. Po dvou chybách hra doporučí lehčí úlohu, po sérii úspěchů těžší.</p>
 <h2>Po hodině</h2>
 <ul><li>Na závěrečné obrazovce je přehled <b>úspěšnosti podle témat</b> – ukáže, co třída potřebuje zopakovat.</li>

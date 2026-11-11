@@ -1,6 +1,15 @@
 /* main.js – rozcestník: učitel / žák */
 (function () {
 'use strict';
+/* když se cokoli nečekaně pokazí, žák neuvidí prázdnou stránku, ale srozumitelnou hlášku */
+function crash(msg) {
+  if (document.getElementById('crash')) return;
+  const d = document.createElement('div'); d.id = 'crash';
+  d.innerHTML = '<div class="card"><h2>😕 Něco se pokazilo</h2><p>Zkus stránku načíst znovu. Hra si pamatuje tvoje jméno i tým, nic se neztratí.</p><button class="btn big" onclick="location.reload()">Načíst znovu</button><p class="mut small">' + String(msg || '').replace(/[<&]/g, ' ').slice(0, 160) + '</p></div>';
+  document.body.appendChild(d);
+}
+window.addEventListener('error', e => { if (e && e.message && !/ResizeObserver|Script error/.test(e.message)) crash(e.message); });
+window.addEventListener('unhandledrejection', e => { /* chyby sítě PeerJS jsou ošetřené jinde */ });
 const $ = s => document.querySelector(s);
 const q = new URLSearchParams(location.search);
 const code = (q.get('r') || '').trim().toUpperCase();

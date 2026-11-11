@@ -339,3 +339,21 @@ h1, h2, h3 { font-weight: 800; } h2 { font-size: 1.25rem; } h3 { font-size: .74r
 .icosteps { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 36px 0 12px; flex-wrap: wrap; } .icosteps div { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 78px; } .icosteps span { font-size: 2.6rem; width: 76px; height: 76px; display: grid; place-items: center; background: var(--soft); border: 1px solid var(--hair); border-radius: 24px; } .icosteps b { font-size: .9rem; } .icosteps i { color: var(--lime); font-style: normal; font-size: 1.4rem; opacity: .6; }
 .icohelp { font-size: 1.05rem; font-weight: 700; margin: 4px 0 12px; line-height: 1.9; } .icohelp i { color: var(--lime); font-style: normal; }
 .etiles { grid-template-columns: repeat(auto-fit, minmax(68px, 1fr)); gap: 8px; } .phone .etile { padding: 10px 2px; } .phone .etile small { font-size: .62rem; letter-spacing: .03em; } .icohelp { font-size: .95rem; }
+
+/* ===== kolo 8: popisek závodu, KaTeX, nápověda při připojení ===== */
+.race { padding: 12px 14px; border-radius: 22px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); }
+.race-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.race-h b { font-size: 1.15rem; } .race-h span { color: var(--mut, #9fb8a8); font-size: .95rem; }
+.lane { display: grid; grid-template-columns: minmax(90px, 170px) 1fr; align-items: center; gap: 12px; }
+.lane .ln { font-weight: 700; font-size: 1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; opacity: .92; }
+.race-f { display: grid; grid-template-columns: minmax(90px, 170px) 1fr; gap: 12px; font-size: .8rem; color: var(--mut); }
+.race-f > span:first-child { grid-column: 2; } .race-f > i { display: none; } .race-f > span:last-child { grid-column: 2; text-align: right; margin-top: -1.35em; }
+.q .katex, .choice .ct .katex, .expl .katex, .qecho .katex, .correct .katex { font-size: 1.12em; }
+.q .katex { font-size: 1.12em; }
+.choice .ct { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+.q, .expl { overflow-wrap: anywhere; }
+.katex-display { margin: .4em 0; }
+.conn-help { margin: 12px 0; padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,.07); text-align: left; font-size: .92rem; line-height: 1.6; }
+.conn-help .btn { margin-top: 10px; width: 100%; }
+#crash { position: fixed; inset: 0; z-index: 99; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.7); }
+#crash .card { max-width: 380px; text-align: center; }

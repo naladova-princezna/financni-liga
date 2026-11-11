@@ -11,7 +11,7 @@ const Net = {
     const b = this.params.get('broker');                     // ?broker=localhost:9000 – jen pro testování
     if (b) { const [h, p] = b.split(':'); o.host = h; o.port = +p || 9000; o.path = '/'; o.secure = false; }
     else if (cfg.peer) Object.assign(o, cfg.peer);
-    o.config = { iceServers: cfg.iceServers || [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }] };
+    o.config = { iceCandidatePoolSize: 2, iceServers: cfg.iceServers || [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:global.stun.twilio.com:3478' }] };
     return id ? new root.Peer(id, o) : new root.Peer(o);
   },
   joinUrl(code) {
