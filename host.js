@@ -97,7 +97,7 @@ const Host = {
     if (this.tickN % 5 === 0) for (const pid of Object.keys(this.conns)) this.send(pid, { t: 'hb', now });
     if (dirty) this.changed();
     const el = $('#h-timer'); if (el) el.textContent = S.paused ? '⏸ ' + Net.fmtTime(S.pauseLeft) : (S.endsAt ? Net.fmtTime(S.endsAt - now) : '');
-    if (el) el.classList.toggle('warn', !!S.endsAt && S.endsAt - now < 30000);
+    if (el) { el.classList.toggle('warn', !!S.endsAt && S.endsAt - now < 30000); const tot = S.phase === 'work' ? S.settings.workSec * 1000 : S.phase === 'decide' ? S.settings.decideSec * 1000 : 0, left = S.endsAt ? S.endsAt - now : 0; el.style.setProperty('--p', tot && S.endsAt ? Math.max(0, Math.min(100, left / Math.max(tot, left) * 100)) : 0); }
   },
 
   /* ---------- boti (demo / náhled) ---------- */
@@ -244,10 +244,14 @@ const Host = {
   eventCard(compact) {
     const S = this.S, ev = S.event; if (!ev) return '';
     const idxPct = ((S.priceIndex - 1) * 100).toFixed(0);
-    const mods = Object.entries(ev.mods || {}).filter(([, v]) => v).map(([k, v]) => `<span class="chip2 ${v > 0 ? 'up' : 'down'}">${E.ASSET_BY[k].emoji} ${v > 0 ? '+' : '−'}${Math.abs(Math.round(v * 100))} %</span>`).join('');
     return `<div class="evcard ${compact ? 'compact' : ''}"><div class="ev-ic">${ev.emoji}</div><div class="ev-b"><div class="ev-k">Událost roku ${S.year}</div><h2>${esc(ev.name)}</h2><p>${esc(ev.text)}</p>
-      <div class="chips"><span class="chip2">📈 Inflace <b>${ev.infl} %</b></span><span class="chip2">🐷 Spoření <b>${String(ev.save).replace('.', ',')} %</b></span><span class="chip2">🏦 Úvěr <b>${ev.loan} %</b></span><span class="chip2">🧾 Daň <b>${ev.tax} %</b></span>${ev.rew && ev.rew !== 1 ? `<span class="chip2 ${ev.rew > 1 ? 'up' : 'down'}">⚒️ Odměny ${ev.rew > 1 ? '+' : '−'}${Math.abs(Math.round((ev.rew - 1) * 100))} %</span>` : ''}${ev.trainDiscount ? '<span class="chip2 up">🎓 Školení −50 %</span>' : ''}${mods}<span class="chip2">🛒 Ceny od začátku +${idxPct} %</span></div>
+      ${Player.evChips(ev, idxPct)}
       ${S.phase === 'result' && !compact ? `<div class="lesson">💡 <b>Poučení:</b> ${esc(ev.lesson)}</div>${ev.q ? `<div class="lesson disc">💬 <b>Otázka do diskuse:</b> ${esc(ev.q)}</div>` : ''}` : ''}</div></div>`;
+  },
+  raceHtml() {
+    const S = this.S, nets = S.teams.map(t => E.net(t)), lo = Math.min(S.settings.startMoney, ...nets) - 150, hi = Math.max(...nets, S.settings.startMoney) + 150;
+    const lanes = S.teams.map(t => { const n = E.net(t), p = 4 + 88 * (n - lo) / ((hi - lo) || 1); return `<div class="lane"><div class="track"><div class="runner" style="left:${p.toFixed(1)}%;--c:${t.color}"><span class="rn">${t.emoji}</span><b>${kc(n)}</b></div></div></div>`; }).join('');
+    return `<div class="race"><div class="flag">🏁</div>${lanes}</div>`;
   },
   gameHtml() {
     const S = this.S; const now = Date.now();
@@ -257,12 +261,12 @@ const Host = {
     const dots = Array.from({ length: S.settings.years }, (_, i) => `<i class="${i + 1 < S.year || (i + 1 === S.year && S.phase === 'result') ? 'done' : i + 1 === S.year ? 'cur' : ''}"></i>`).join('');
     const head = `<header class="h-head"><div class="h-l"><div class="logo sm">💰 Finanční liga</div><button class="code-chip" data-h="qr" title="Zobrazit QR kód pro nově příchozí">📱 ${S.code}</button><button class="code-chip" data-h="fs" title="Celá obrazovka">⛶</button></div>
       <div class="h-c"><div class="years">${dots}</div><div class="phase">${S.phase === 'final' ? PHASE.final : `Rok ${S.year}/${S.settings.years} · ${PHASE[S.phase]}`}</div></div>
-      <div class="h-r"><div id="h-timer" class="timer">${S.paused ? '⏸ ' + Net.fmtTime(S.pauseLeft) : (S.endsAt ? Net.fmtTime(S.endsAt - now) : '')}</div><div class="online ${online < Object.keys(S.players).length ? 'warn' : ''}">📶 ${online}/${Object.keys(S.players).length}</div></div></header>`;
+      <div class="h-r"><div id="h-timer" class="timer" style="--p:${S.endsAt && !S.paused ? Math.max(0, Math.min(100, (S.endsAt - now) / Math.max(S.phase === 'work' ? S.settings.workSec * 1000 : S.settings.decideSec * 1000, S.endsAt - now) * 100)) : 0}">${S.paused ? '⏸ ' + Net.fmtTime(S.pauseLeft) : (S.endsAt ? Net.fmtTime(S.endsAt - now) : '')}</div><div class="online ${online < Object.keys(S.players).length ? 'warn' : ''}">📶 ${online}/${Object.keys(S.players).length}</div></div></header>`;
     let body = '';
     const ranked = S.teams.slice().sort((a, b) => E.net(b) - E.net(a)); const rk = t => ranked.indexOf(t) + 1;
-    if (S.phase === 'event') body = `${this.eventCard()}<div class="hint-bar">👀 Přečtěte si událost a domluvte se v týmu. Až budete připraveni, učitel zahájí práci.</div><div class="grid">${S.teams.map(t => this.teamCard(t, 'plain', null)).join('')}</div>`;
-    else if (S.phase === 'work') body = `${this.eventCard(true)}<div class="hint-bar big">🧮 Řešte příklady na mobilu – <b>každá správná odpověď = peníze pro tým!</b></div><div class="grid">${S.teams.map(t => this.teamCard(t, 'work', null)).join('')}</div>`;
-    else if (S.phase === 'decide') body = `${this.eventCard(true)}<div class="hint-bar big">🤝 Rozhodněte se společně: investovat, spořit, půjčit si, pojistit se, vzdělávat se…</div><div class="grid">${S.teams.map(t => this.teamCard(t, 'plain', null)).join('')}</div>`;
+    if (S.phase === 'event') body = `${this.eventCard()}<div class="hint-bar">👀 Domluvte se v týmu, co událost změní</div><div class="grid">${S.teams.map(t => this.teamCard(t, 'plain', null)).join('')}</div>`;
+    else if (S.phase === 'work') body = `${this.eventCard(true)}${this.raceHtml()}<div class="grid">${S.teams.map(t => this.teamCard(t, 'work', null)).join('')}</div>`;
+    else if (S.phase === 'decide') body = `${this.eventCard(true)}<div class="hint-bar big icons">🤝 &nbsp;💼 &nbsp;🐷 &nbsp;🏦 &nbsp;☂️ &nbsp;🎓</div><div class="grid">${S.teams.map(t => this.teamCard(t, 'plain', null)).join('')}</div>`;
     else if (S.phase === 'result') body = `${this.eventCard()}<div class="grid">${S.teams.map(t => this.teamCard(t, 'result', rk(t))).join('')}</div>`;
     else if (S.phase === 'final') body = this.finalHtml();
     const foot = `<footer class="h-foot">${S.phase === 'work' || S.phase === 'decide' ? `<button class="btn ghost" data-h="pause">${S.paused ? '▶ Pokračovat' : '⏸ Pauza'}</button>` : ''}${S.endsAt ? '<button class="btn ghost" data-h="plus">+30 s</button>' : ''}<button class="btn big" data-h="next">${label}</button>${S.phase !== 'final' ? '<button class="btn ghost small" data-h="endgame">✕ Ukončit</button>' : ''}</footer>`;

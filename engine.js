@@ -124,7 +124,7 @@ function joinPlayer(S, token, name) {
 }
 function mkTeam(S, name, emoji) {
   const i = S.teams.length; const used = new Set(S.teams.map(t => t.emoji));
-  const t = Object.assign({ id: 't' + (++S.tcount), name: String(name || '').trim().slice(0, 18) || 'Tým ' + (i + 1), emoji: emoji || TEAM_EMOJI.find(e => !used.has(e)) || '⭐', color: TEAM_COLORS[S.tcount % TEAM_COLORS.length], members: [] }, econ(S));
+  const t = Object.assign({ id: 't' + (++S.tcount), name: String(name || '').trim().slice(0, 18) || 'Tým ' + (i + 1), emoji: (emoji && !used.has(emoji)) ? emoji : (TEAM_EMOJI.find(e => !used.has(e)) || '⭐'), color: TEAM_COLORS[S.tcount % TEAM_COLORS.length], members: [] }, econ(S));
   S.teams.push(t); return t;
 }
 function leaveTeam(S, pid) {
@@ -365,7 +365,9 @@ function viewFor(S, pid) {
   const p = S.players[pid], t = teamOf(S, pid);
   const v = { paused: S.paused, code: S.code, phase: S.phase, year: S.year, years: S.settings.years, now: Date.now(), endsAt: S.endsAt, event: S.event, priceIndex: S.priceIndex, prices: prices(S), teams: S.teams.map(x => publicTeam(S, x)), topics: S.settings.topics, maxTeam: MAX_TEAM };
   v.diffs = S.settings.diffs || [1, 2, 3];
+  v.total = S.phase === 'work' ? S.settings.workSec * 1000 : S.phase === 'decide' ? S.settings.decideSec * 1000 : 0;
   v.me = { id: pid, name: p.name, teamId: p.teamId, role: t ? (ROLES[roleIdx(t, pid)] || ROLES[0]).key : null, streak: p.streak, correct: p.correct, wrong: p.wrong, earned: p.earned, diff: p.diff };
+  v.me.lock = Math.max(0, (p.lockUntil || 0) - Date.now()); v.streakEvery = STREAK_EVERY; v.streakBonus = STREAK_BONUS;
   if (t) {
     v.team = { id: t.id, name: t.name, emoji: t.emoji, color: t.color, money: Math.round(t.money), savings: Math.round(t.savings), loan: Math.round(t.loan), assets: t.assets, train: t.train, insured: t.insuredYear === S.year && S.phase !== 'lobby', insuredCount: t.insuredCount, earnedYear: t.earnedYear, correct: t.correct, wrong: t.wrong, yc: t.yc, living: living(S, t), ready: !!t.ready, net: net(t), real: Math.round(net(t) / S.priceIndex), log: t.log, sugg: t.sugg, last: t.last, history: t.history, members: t.members.map((id, i) => ({ id, name: S.players[id].name, online: S.players[id].online, role: ROLES[i].key })) };
     v.goal = S.phase === 'lobby' ? null : goalState(S, t);

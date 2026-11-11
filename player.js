@@ -13,7 +13,7 @@ const ROLE = Object.fromEntries(E.ROLES.map((r, i) => [r.key, { ...r, idx: i }])
 const PHASE_TXT = { lobby: 'Čekárna', event: 'Událost roku', work: 'Práce', decide: 'Rozhodování', result: 'Vyúčtování', final: 'Konec hry' };
 
 const Player = {
-  code: '', token: '', name: '', peer: null, conn: null, S: null, offset: 0, gen: 0, connected: false, lastMsg: 0, status: '', tab: 'game', ui: { creating: false, emoji: E.TEAM_EMOJI[0] }, _sig: '', pending: false, helped: {}, openSecs: {},
+  code: '', token: '', name: '', peer: null, conn: null, S: null, offset: 0, gen: 0, connected: false, lastMsg: 0, status: '', tab: 'game', ui: { creating: false, emoji: E.TEAM_EMOJI[0] }, _sig: '', pending: false, helped: {}, openSecs: {}, showWhy: false, _lockAt: 0,
 
   init(code) {
     this.code = code;
@@ -61,7 +61,7 @@ const Player = {
   send(m) { if (this.conn && this.conn.open) { try { this.conn.send(m); return true; } catch (e) { } } return false; },
   onMsg(m, gen) {
     if (gen !== this.gen || !m) return; this.lastMsg = Date.now();
-    if (m.t === 's') { this.S = m.s; this.offset = m.s.now - Date.now(); this.pending = false; this.status = ''; this.render(); if (m.s.res && m.s.res.id !== this._lastRes) { this._lastRes = m.s.res.id; try { if (navigator.vibrate && navigator.userActivation && navigator.userActivation.hasBeenActive) navigator.vibrate(m.s.res.ok ? 30 : [60, 40, 60]); } catch (e) { } } }
+    if (m.t === 's') { this.S = m.s; this.offset = m.s.now - Date.now(); this.pending = false; this.status = ''; this._lockAt = m.s.me.lock ? Date.now() + m.s.me.lock : 0; this.render(); this.tick(); if (m.s.res && m.s.res.id !== this._lastRes) { this._lastRes = m.s.res.id; this.fx(m.s.res.ok); try { if (navigator.vibrate && navigator.userActivation && navigator.userActivation.hasBeenActive) navigator.vibrate(m.s.res.ok ? 30 : [60, 40, 60]); } catch (e) { } } }
     else if (m.t === 'toast') this.toast(m.text, m.ok);
     else if (m.t === 'err') { this.status = m.text; this.render(); }
   },
@@ -88,6 +88,8 @@ const Player = {
       case 'key': { const i = $('#numIn'); if (i) { i.value += d.k; i.focus(); } break; }
       case 'skip': this.send({ t: 'task:skip' }); break;
       case 'next': this.send({ t: 'task:next' }); break;
+      case 'again': this.showWhy = false; this.send({ t: 'task:get', diff: +d.d }); break;
+      case 'why': this.showWhy = !this.showWhy; this._sig = ''; this.render(); break;
       case 'act': this.send({ t: 'act', a: d.act, arg: d.arg }); break;
       case 'ready': this.send({ t: 'ready' }); break;
       case 'help': this.helped[d.k] = 1; LS.set('fl_help_' + d.k, '1'); this._sig = ''; this.render(); break;
@@ -99,7 +101,10 @@ const Player = {
 
   /* ---------- vykreslování ---------- */
   tick() {
-    const S = this.S, el = $('#ph-timer'); if (!S || !el) return;
+    const S = this.S; if (!S) return;
+    const bar = $('#ph-bar i'); if (bar) { if (S.total && S.endsAt && !S.paused) { const left = S.endsAt - (Date.now() + this.offset), tot = Math.max(S.total, left); bar.style.width = Math.max(0, Math.min(100, left / tot * 100)) + '%'; bar.parentNode.classList.toggle('warn', left < 30000); } else bar.style.width = S.paused ? '100%' : '0%'; }
+    const ab = $('#againBtn'); if (ab) { const r = this._lockAt - Date.now(); if (r > 0) { ab.disabled = true; ab.textContent = '⏳ ' + Math.ceil(r / 1000) + ' s'; } else if (ab.disabled) { ab.disabled = false; ab.textContent = DIFF[S.me.diff || 1].e + ' Další úloha'; } }
+    const el = $('#ph-timer'); if (!el) return;
     if (!S.endsAt && !S.paused) { el.textContent = ''; return; }
     if (S.paused) { el.textContent = '⏸ pauza'; return; }
     const left = S.endsAt - (Date.now() + this.offset); el.textContent = '⏱ ' + Net.fmtTime(left); el.classList.toggle('warn', left < 30000);
@@ -115,6 +120,8 @@ const Player = {
     this.paintTop(); this.paintTabs();
     const bn = $('#ph-banner'); const msg = !this.connected ? `⚠️ ${this.status || 'Spojení přerušeno'} – připojuji znovu…` : '';
     bn.innerHTML = msg ? `<div class="banner">${esc(msg)}</div>` : '';
+    if (this.S.phase === 'final' && !this._rained) { this._rained = true; const mine = (this.S.final || []).find(r => r.teamId === (this.S.team && this.S.team.id)); if (!mine || mine.rank <= 3) this.rain(); }
+    const fk = this.S.res ? this.S.me.correct + ':' + this.S.me.wrong + ':' + this.S.res.id : ''; if (fk !== this._fxk) { this._fxk = fk; this.showWhy = false; this._fire = !!fk; }
     const sig = this.sig(); if (sig !== this._sig) { this._sig = sig; const m = $('#ph-main'); m.innerHTML = this.mainHtml(); m.scrollTop = 0; if (this.tab === 'game' && this.S.task && this.S.task.type === 'num') setTimeout(() => { const i = $('#numIn'); i && i.focus(); }, 80); }
   },
   sig() {
@@ -124,9 +131,9 @@ const Player = {
     if (!t) return base + (this.ui.creating ? '|create' : JSON.stringify(S.teams));
     switch (S.phase) {
       case 'lobby': return base + JSON.stringify(S.teams);
-      case 'work': return base + '|' + !!S.paused + '|' + S.diffs + '|' + S.teams.map(x => x.net) + '|' + (S.task ? S.task.id : '-') + '|' + (S.res ? S.res.id : '-') + '|' + S.me.diff + '|' + t.train;
+      case 'work': return base + '|' + !!S.paused + '|' + S.diffs + '|' + S.teams.map(x => x.net) + '|' + (S.task ? S.task.id : '-') + '|' + (S.res ? S.res.id : '-') + '|' + this.showWhy + '|' + S.me.diff + '|' + t.train;
       case 'decide': return base + JSON.stringify([this.openSecs, t.money, t.savings, t.loan, t.assets, t.train, t.insured, S.me.role, t.members.length, t.sugg, t.log.length, t.ready]);
-      case 'result': return base + JSON.stringify([t.last, S.teams.map(x => x.net)]);
+      case 'result': return base + JSON.stringify([t.last, S.teams.map(x => x.net), this.showWhy]);
       case 'event': return base + '|' + (LS.get('fl_help_event') || this.helped.event ? 1 : 0);
       case 'final': return base + JSON.stringify(S.final);
       default: return base;
@@ -134,9 +141,20 @@ const Player = {
   },
   paintTop() {
     const S = this.S, t = S.team; const el = $('#ph-top');
-    const html = t ? `<div class="ph-top" style="--c:${t.color}"><div class="ph-team">${t.emoji} <b>${esc(t.name)}</b></div><div class="ph-money">💵 ${kc(t.money)}</div></div><div class="ph-sub"><span>${S.phase === 'lobby' ? 'Čekárna' : `Rok ${S.year}/${S.years} · ${PHASE_TXT[S.phase]}`}</span><span id="ph-timer" class="ph-timer"></span></div>`
+    const html = t ? `<div class="ph-top" style="--c:${t.color}"><div class="ph-team">${t.emoji} <b>${esc(t.name)}</b></div><div class="ph-money">💵 ${kc(t.money)}</div></div><div class="ph-sub"><span>${S.phase === 'lobby' ? 'Čekárna' : `Rok ${S.year}/${S.years} · ${PHASE_TXT[S.phase]}`}</span><span id="ph-timer" class="ph-timer"></span></div>${S.phase === 'work' || S.phase === 'decide' ? '<div id="ph-bar" class="pbar"><i></i></div>' : ''}`
       : `<div class="ph-top"><div class="ph-team">👋 <b>${esc(S.me.name)}</b></div><div class="ph-money mut">hra ${esc(S.code)}</div></div>`;
     if (el._h !== html) { el._h = html; el.innerHTML = html; if (t) { if (this._m != null && t.money !== this._m) { const mm = el.querySelector('.ph-money'); if (mm) mm.classList.add(t.money > this._m ? 'flash-up' : 'flash-down'); } this._m = t.money; } }
+  },
+  rain() {
+    const w = document.createElement('div'); w.className = 'rain'; const em = ['🪙', '🎉', '⭐', '💚', '✨', '🏆'];
+    for (let i = 0; i < 46; i++) { const e = document.createElement('span'); e.textContent = em[i % em.length]; e.style.left = Math.random() * 100 + '%'; e.style.animationDelay = Math.random() * 1.6 + 's'; e.style.animationDuration = 2.6 + Math.random() * 2 + 's'; e.style.fontSize = 18 + Math.random() * 22 + 'px'; w.appendChild(e); }
+    document.body.appendChild(w); setTimeout(() => w.remove(), 6000);
+  },
+  fx(ok) {
+    const c = $('#resCard'); if (!c || !ok) return;
+    const em = ['🪙', '✨', '💚', '🪙', '⭐'];
+    for (let i = 0; i < 20; i++) { const e = document.createElement('span'), a = Math.random() * Math.PI * 2, r = 80 + Math.random() * 130; e.className = 'pt'; e.textContent = em[i % em.length]; e.style.setProperty('--dx', Math.cos(a) * r + 'px'); e.style.setProperty('--dy', Math.sin(a) * r - 70 + 'px'); e.style.setProperty('--d', Math.random() * .18 + 's'); c.appendChild(e); }
+    setTimeout(() => c.querySelectorAll('.pt').forEach(x => x.remove()), 1500);
   },
   paintTabs() {
     const S = this.S, el = $('#ph-tabs'); if (!S.team) { el.innerHTML = ''; return; }
@@ -171,11 +189,13 @@ const Player = {
   },
 
   /* ----- hra ----- */
-  evChips(ev) {
-    const mods = Object.entries(ev.mods || {}).filter(([, v]) => v).map(([k, v]) => `<span class="chip2 ${v > 0 ? 'up' : 'down'}">${E.ASSET_BY[k].emoji} ${v > 0 ? '+' : '−'}${Math.abs(Math.round(v * 100))} %</span>`).join('');
-    return `<div class="chips"><span class="chip2">📈 Inflace <b>${ev.infl} %</b></span><span class="chip2">🐷 Spoření <b>${String(ev.save).replace('.', ',')} %</b></span><span class="chip2">🏦 Úvěr <b>${ev.loan} %</b></span><span class="chip2">🧾 Daň <b>${ev.tax} %</b></span>${ev.rew && ev.rew !== 1 ? `<span class="chip2 ${ev.rew > 1 ? 'up' : 'down'}">⚒️ Odměny ${ev.rew > 1 ? '+' : '−'}${Math.abs(Math.round((ev.rew - 1) * 100))} %</span>` : ''}${ev.trainDiscount ? '<span class="chip2 up">🎓 Školení −50 %</span>' : ''}${mods}</div>`;
+  evChips(ev, idx) {
+    const T = (ic, n, l, cls = '') => `<div class="etile ${cls}"><span class="ei">${ic}</span><b>${n}</b><small>${l}</small></div>`;
+    const pc = v => String(v).replace('.', ',') + ' %', sg = v => (v > 0 ? '▲ ' : '▼ ') + Math.abs(Math.round(v * 100)) + ' %';
+    const mods = Object.entries(ev.mods || {}).filter(([, v]) => v).map(([k, v]) => T(E.ASSET_BY[k].emoji, sg(v), 'výnos', v > 0 ? 'up' : 'down')).join('');
+    return `<div class="etiles">${T('📈', pc(ev.infl), 'inflace')}${T('🐷', pc(ev.save), 'spoření')}${T('🏦', pc(ev.loan), 'úvěr')}${T('🧾', pc(ev.tax), 'daň')}${ev.rew && ev.rew !== 1 ? T('⚒️', sg(ev.rew - 1), 'odměny', ev.rew > 1 ? 'up' : 'down') : ''}${ev.trainDiscount ? T('🎓', '−50 %', 'školení', 'up') : ''}${mods}${idx != null ? T('🛒', '+' + idx + ' %', 'ceny od startu') : ''}</div>`;
   },
-  evCard(S) { const ev = S.event; return `<div class="card ev"><div class="ev-ic">${ev.emoji}</div><div class="ev-k">Událost roku ${S.year}</div><h2>${esc(ev.name)}</h2><p>${esc(ev.text)}</p>${this.evChips(ev)}</div>`; },
+  evCard(S) { const ev = S.event, first = String(ev.text).split(/(?<=[.!?])\s/)[0]; return `<div class="card ev big"><div class="ev-ic">${ev.emoji}</div><h2>${esc(ev.name)}</h2><p class="mut">${esc(first)}</p>${this.evChips(ev)}</div>`; },
   roleCard(S) {
     const r = ROLE[S.me.role]; if (!r) return '';
     return `<div class="card role"><div class="role-ic">${r.emoji}</div><div><b>Tvoje role: ${r.name}</b><div class="mut small">${r.does}</div></div></div>`;
@@ -183,10 +203,10 @@ const Player = {
   gameHtml() {
     const S = this.S, t = S.team;
     if (!t || S.phase === 'lobby') return this.lobbyHtml();
-    const hc = (k, html) => (S.year === 1 && !this.helped[k] && !LS.get('fl_help_' + k)) ? `<div class="card help"><b>💡 Jak na to</b>${html}<button class="btn sm" data-a="help" data-k="${k}">Rozumím</button></div>` : '';
+    const hc = (k, html) => (S.year === 1 && !this.helped[k] && !LS.get('fl_help_' + k)) ? `<div class="card help">${html}<button class="btn sm" data-a="help" data-k="${k}">Jdeme na to</button></div>` : '';
     this._hc = hc;
     switch (S.phase) {
-      case 'event': return `${hc('event', '<p>Každý rok začíná <b>událostí</b>, která mění pravidla (úroky, daně, výnosy). Pak <b>řešíte příklady</b> = vyděláváte, a nakonec se tým <b>společně rozhodne</b>, co s penězi.</p>')}${this.evCard(S)}${this.roleCard(S)}<div class="card"><p>👀 Přečtěte si událost a <b>domluvte se v týmu</b>, co to pro vás znamená. Učitel brzy zahájí práci.</p></div>`;
+      case 'event': return `${hc('event', '<p class="icohelp">🌍 Událost <i>→</i> 🧮 Počítej <i>→</i> 🤝 Rozhodni</p>')}${this.evCard(S)}${this.roleCard(S)}<div class="card"><p>👀 Přečtěte si událost a <b>domluvte se v týmu</b>, co to pro vás znamená. Učitel brzy zahájí práci.</p></div>`;
       case 'work': return this.workHtml();
       case 'decide': return this.decideHtml();
       case 'result': return this.resultHtml();
@@ -205,28 +225,30 @@ const Player = {
   },
   workHtml() {
     const S = this.S, task = S.task, res = S.res;
-    const hw = this._hc ? this._hc('work', '<p>Vyber obtížnost: čím těžší úloha, tím víc vyděláš, ale chyba stojí pokutu. Počítej na papír. Peníze jdou celému týmu.</p>') : '';
-    if (S.paused) return '<div class="card center-t"><div class="big-e">⏸</div><h2>Pauza</h2><p class="mut">Učitel hru pozastavil. Za chvíli pokračujeme.</p></div>';
+    if (S.paused) return '<div class="card center-t pausec"><div class="big-e">⏸</div><h2>Pauza</h2></div>';
     const rk = this.rankHtml(S);
+    const pips = () => { const n = S.me.streak % S.streakEvery; return `<div class="pips" title="Série">🔥${Array.from({ length: S.streakEvery }, (_, k) => `<i class="${k < n ? 'on' : ''}"></i>`).join('')}<em>+${S.streakBonus}</em></div>`; };
     if (task) {
       const tp = TOPIC[task.topic] || { emoji: '📐', name: '' };
       let ans;
       if (task.type === 'mc') ans = `<div class="choices">${task.choices.map((c, i) => `<button class="choice" data-a="ans" data-i="${i}"><span class="ci">${'ABCD'[i]}</span><span class="ct">${c}</span></button>`).join('')}</div>`;
-      else ans = `<div class="numans"><input id="numIn" type="text" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tvoje odpověď"><div class="keys">${['−', '/', ','].map(k => `<button data-a="key" data-k="${k === '−' ? '-' : k}">${k}</button>`).join('')}</div><button id="subBtn" class="btn big" data-a="submit">Odeslat odpověď</button></div>${task.hint ? `<p class="mut small">${esc(task.hint)}</p>` : ''}`;
-      return `${rk}<div class="card task"><div class="tk-h"><span class="chip2">${task.review ? '🔁 Procvičení · ' : ''}${tp.emoji} ${tp.name}</span><span class="dchip d${task.diff}">${DIFF[task.diff].e} +${this.reward(task.diff, task)} Kč</span></div><div class="q">${task.q}</div>${ans}<button class="link" data-a="skip">Přeskočit (−${E.SKIP_FEE} Kč)</button></div>`;
+      else ans = `<div class="numans"><input id="numIn" type="text" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tvoje odpověď"><div class="keys">${['−', '/', ','].map(k => `<button data-a="key" data-k="${k === '−' ? '-' : k}">${k}</button>`).join('')}</div><button id="subBtn" class="btn big" data-a="submit">Odeslat</button></div>${task.hint ? `<p class="mut small">${esc(task.hint)}</p>` : ''}`;
+      return `${rk}<div class="card task d${task.diff}"><div class="tk-h"><span class="chip2">${task.review ? '🔁 ' : ''}${tp.emoji} ${tp.name}</span><span class="dchip d${task.diff}">${DIFF[task.diff].e} +${this.reward(task.diff, task)}</span></div><div class="q">${task.q}</div>${ans}<div class="tk-f">${pips()}<button class="link" data-a="skip">Přeskočit −${E.SKIP_FEE}</button></div></div>`;
     }
     if (res) {
-      return `${rk}<div class="card res ${res.ok ? 'ok' : 'bad'}"><div class="res-h">${res.ok ? '✅ Správně!' : '❌ Chyba'}</div><div class="qecho">${res.q}</div>
-        <div class="res-m">${res.ok ? `+${kc(res.reward)}${res.bonus ? ` <span class="bonus">🔥 série +${kc(res.bonus)}</span>` : ''}` : (res.pen ? `−${kc(res.pen)}` : 'Bez pokuty')}</div>
-        ${res.ok ? '' : `<div class="correct">Správná odpověď: <b>${res.ansText}</b></div>`}${res.expl ? `<div class="expl">💡 ${res.expl}</div>` : ''}
-        ${res.tip ? `<div class="tip">${res.tip}</div>` : ''}
-        ${S.me.streak ? `<div class="streak">🔥 Série: ${S.me.streak}${S.me.streak % E.STREAK_EVERY ? ` (ještě ${E.STREAK_EVERY - S.me.streak % E.STREAK_EVERY} do bonusu)` : ''}</div>` : ''}
-        <button class="btn big" data-a="next">Další úloha →</button></div>`;
+      const d = S.me.diff || 1;
+      return `${rk}<div class="card res ${res.ok ? 'ok' : 'bad'}" id="resCard"><div class="res-ic">${res.ok ? '✓' : '✗'}</div>
+        <div class="res-m">${res.ok ? '+' + kc(res.reward) : (res.pen ? '−' + kc(res.pen) : '0 Kč')}</div>
+        ${res.bonus ? `<div class="bonus-pop">🔥 Série! +${kc(res.bonus)}</div>` : ''}
+        ${res.ok ? '' : `<div class="correct"><small>správně:</small> <b>${res.ansText}</b></div>`}
+        ${pips()}
+        ${(res.expl || res.tip) ? `<button class="link why" data-a="why">💡 ${this.showWhy ? 'Skrýt' : 'Proč?'}</button>${this.showWhy ? `<div class="expl"><div class="qecho">${res.q}</div>${res.expl ? res.expl : ''}${res.tip ? `<div class="tip">${res.tip}</div>` : ''}</div>` : ''}` : ''}
+        <button class="btn big" id="againBtn" data-a="again" data-d="${d}">${DIFF[d].e} Další úloha</button>
+        <button class="link" data-a="next">změnit obtížnost</button></div>`;
     }
-    return `${hw}${rk}<div class="card"><h2>Vyber si úlohu</h2><p class="mut">Čím těžší úloha, tím víc vyděláš – ale chyba stojí peníze.</p>
-      <div class="diffs">${[1, 2, 3].filter(d => S.diffs.includes(d)).map(d => `<button class="diff d${d} ${S.me.diff === d ? 'last' : ''}" data-a="get" data-d="${d}"><span class="dn">${DIFF[d].e} ${DIFF[d].n}</span><span class="dr">+${this.reward(d)} Kč</span><span class="dp">${E.PEN[d] ? 'chyba −' + E.PEN[d] + ' Kč' : 'chyba bez pokuty'}</span></button>`).join('')}</div>
-      <p class="mut small">🔥 Každá ${E.STREAK_EVERY}. správná odpověď v řadě = bonus ${kc(E.STREAK_BONUS)}. Společně vyděláváte pro tým${S.team.train ? ` · 🎓 školení +${Math.round(E.TRAIN_BONUS * S.team.train * 100)} %` : ''}.</p>
-      <div class="mini">✅ ${S.me.correct} · ❌ ${S.me.wrong} · vydělal/a jsi ${kc(S.me.earned)}</div></div>`;
+    return `${rk}<div class="picker"><div class="pk-t">Vyber si úlohu</div>
+      <div class="diffs3">${[1, 2, 3].filter(d => S.diffs.includes(d)).map(d => `<button class="diff d${d} ${S.me.diff === d ? 'last' : ''}" data-a="get" data-d="${d}"><span class="dn">${DIFF[d].e}</span><span class="dr">+${this.reward(d)}</span><span class="dp">chyba −${E.PEN[d]}</span></button>`).join('')}</div>
+      <div class="pk-f">${pips()}<span class="mini">✅ ${S.me.correct} · ❌ ${S.me.wrong}</span></div></div>`;
   },
   decideHtml() {
     const S = this.S, t = S.team, pr = S.prices, ev = S.event, me = S.me;
@@ -237,9 +259,11 @@ const Player = {
     // Vlastník položky klikne na akci, ostatní jen „navrhnou“ (kolega uvidí návrh).
     const sg = k => { const a = t.sugg[k] || []; return `<button class="btn sm ghost sugg ${a.includes(me.name) ? 'on' : ''}" data-a="suggest" data-k="${k}">💬 Navrhnout${a.length ? ' · ' + a.length : ''}</button>`; };
     const act = (key, k, label, action, arg, ok, cls = '') => mine[key] ? `<button class="btn sm ${cls}" data-a="act" data-act="${action}" data-arg="${arg}" ${ok ? '' : 'disabled'}>${label}</button>` : '';
-    const assets = E.ASSETS.map(a => { const o = t.assets[a.id], price = pr.assets[a.id];
-      return `<div class="item"><div class="ai">${a.emoji}</div><div class="ib"><b>${a.name}</b><span class="mut small">${kc(price)} · výnos ~${Math.round(a.mean * 100)} % · riziko ${a.risk}${o.n ? ' · máte ' + o.n + '×' : ''}${o.n > 0 ? ' · další −' + Math.round((1 - Math.max(.4, 1 - .12 * o.n)) * 100) + ' %' : ''}</span></div>
-        <div class="ia">${mine.ceo ? `<button class="btn sm" data-a="act" data-act="buy" data-arg="${a.id}" ${t.money >= price ? '' : 'disabled'}>Koupit</button>${o.n ? `<button class="btn sm ghost" data-a="act" data-act="sell" data-arg="${a.id}">Prodat</button>` : ''}` : sg('buy:' + a.id)}</div></div>`; }).join('');
+    const RISK = { 'nízké': 1, 'střední': 2, 'vysoké': 3 };
+    const assets = `<div class="atiles">${E.ASSETS.map(a => { const o = t.assets[a.id], price = pr.assets[a.id], rk = RISK[a.risk] || 2;
+      return `<div class="atile ${o.n ? 'own' : ''}"><div class="a-top"><span class="a-e">${a.emoji}</span>${o.n ? `<span class="a-n">×${o.n}</span>` : ''}</div><b>${a.name}</b>
+        <div class="a-m"><span class="yield">+${Math.round(a.mean * 100)} %</span><span class="risk" title="riziko ${a.risk}">${[1, 2, 3].map(k => `<i class="${k <= rk ? 'on r' + rk : ''}"></i>`).join('')}</span></div>
+        ${mine.ceo ? `<button class="btn sm" data-a="act" data-act="buy" data-arg="${a.id}" ${t.money >= price ? '' : 'disabled'}>Koupit ${kc(price)}</button>${o.n ? `<button class="link sell" data-a="act" data-act="sell" data-arg="${a.id}">prodat 1×</button>` : ''}` : sg('buy:' + a.id)}</div>`; }).join('')}</div>`;
     const savings = `<div class="item col"><div class="ib"><b>🐷 Spořicí účet</b><span class="mut small">${kc(t.savings)} · úrok ${String(ev.save).replace('.', ',')} % (inflace ${ev.infl} %)</span></div>
         <div class="ia wrap">${mine.cfo ? `${act('cfo', 0, 'Vložit 1 000', 'deposit', 1000, t.money >= 1000)}${act('cfo', 0, 'Vložit vše', 'deposit', 'all', t.money > 0)}${t.savings > 0 ? act('cfo', 0, 'Vybrat vše', 'withdraw', 'all', true, 'ghost') : ''}` : sg('deposit')}</div></div>
       <div class="item col"><div class="ib"><b>🏦 Úvěr</b><span class="mut small">dluh ${kc(t.loan)} · úrok ${ev.loan} % · limit ${kc(pr.maxLoan)}</span></div>
@@ -256,19 +280,19 @@ const Player = {
         : `<section class="sec ${open(k) ? 'open' : ''}"><button class="sec-h btn-plain" data-a="sec" data-k="${k}"><span>${e} ${n}</span><span class="lockd">${ROLE[k].emoji} ${who(k)} ${open(k) ? '▾' : '▸'}</span></button>${open(k) ? body : ''}</section>`; }).join('');
     const log = t.log.filter(l => l.y === S.year).map(l => `<div class="lg">${esc(l.text)}</div>`).join('');
     return `<div class="evline top">🐷 Spoření <b>${kc(t.savings)}</b> · 🏦 Dluh <b>${kc(t.loan)}</b></div>
-      <div class="evline">${ev.emoji} <b>${esc(ev.name)}</b> · inflace ${ev.infl} % · spoření ${String(ev.save).replace('.', ',')} % · úvěr ${ev.loan} % · daň ${ev.tax} %</div>
+      <div class="emini"><b>${ev.emoji} ${esc(ev.name)}</b><span>📈 ${ev.infl} %</span><span>🐷 ${String(ev.save).replace('.', ',')} %</span><span>🏦 ${ev.loan} %</span><span>🧾 ${ev.tax} %</span></div>
       ${secs}
       ${log ? `<div class="loglist">${log}</div>` : ''}
       <button class="btn big ${t.ready ? 'ghost' : ''}" data-a="ready">${t.ready ? '↩ Ještě něco změníme' : '✅ Jsme hotovi'}</button>`;
   },
   resultHtml() {
-    const S = this.S, t = S.team, L = t.last; if (!L) return '<div class="card"><p>Vyhodnocuji…</p></div>';
-    const lines = L.lines.map(l => `<div class="ln ${l.kind}"><span>${l.label}${l.note ? `<small>${esc(l.note)}</small>` : ''}</span><b>${l.kind === 'ok' ? '✓' : l.kind === 'info' ? kc(l.amt) : (l.amt >= 0 ? '+' : '') + kc(l.amt)}</b></div>`).join('');
-    const board = S.teams.slice().sort((a, b) => b.net - a.net).map((x, i) => `<div class="brow ${x.id === t.id ? 'me' : ''}"><span>${i + 1}.</span><span>${x.emoji} ${esc(x.name)}</span><b>${kc(x.net)}</b></div>`).join('');
-    return `<div class="card"><h2>Rok ${S.year} – vyúčtování</h2><div class="ledger">${lines}</div>
-      <div class="netline ${L.delta >= 0 ? 'up' : 'down'}"><span>Čisté jmění</span><b>${kc(L.startNet)} → ${kc(L.endNet)}</b><em>${L.delta >= 0 ? '▲ +' : '▼ '}${kc(L.delta)}</em></div></div>
-      ${S.event ? `<div class="card lesson">💡 <b>Poučení:</b> ${esc(S.event.lesson)}</div>` : ''}
-      <div class="card"><h3>Pořadí týmů</h3>${board}</div>`;
+    const S = this.S, t = S.team, L = t.last; if (!L) return '<div class="card center-t"><div class="spinner"></div></div>';
+    const up = L.delta >= 0, mx = Math.max(1, ...S.teams.map(x => Math.max(0, x.net)));
+    const lines = L.lines.filter(l => l.kind !== 'info').map(l => `<div class="ln ${l.kind}"><span>${l.label}${this.showWhy && l.note ? `<small>${esc(l.note)}</small>` : ''}</span><b>${l.kind === 'ok' ? '✓' : (l.amt >= 0 ? '+' : '') + kc(l.amt)}</b></div>`).join('');
+    const board = S.teams.slice().sort((a, b) => b.net - a.net).map((x, i) => `<div class="brow2 ${x.id === t.id ? 'me' : ''}"><span class="bn">${x.emoji}</span><div class="bb"><i style="width:${Math.max(4, Math.round(100 * Math.max(0, x.net) / mx))}%;background:${x.color}"></i></div><b>${kc(x.net)}</b></div>`).join('');
+    return `<div class="card yr ${up ? 'up' : 'down'}"><div class="yr-h">Rok ${S.year}</div><div class="yr-big">${up ? '▲' : '▼'} ${kc(Math.abs(L.delta))}</div><div class="yr-net">${kc(L.startNet)} → <b>${kc(L.endNet)}</b></div></div>
+      <div class="card"><div class="board2">${board}</div></div>
+      <div class="card"><div class="ledger">${lines}</div>${S.event ? `<button class="link why" data-a="why">💡 ${this.showWhy ? 'Skrýt' : 'Poučení a detaily'}</button>${this.showWhy ? `<div class="expl">${esc(S.event.lesson)}</div>` : ''}` : ''}</div>`;
   },
   finalHtml() {
     const S = this.S, f = S.final || []; const mine = f.find(r => r.teamId === S.team.id);
@@ -276,7 +300,7 @@ const Player = {
     return `<div class="card final-me ${mine && mine.goalMet ? 'ok' : ''}"><div class="big-e">${mine ? medal[mine.rank - 1] || '🏁' : '🏁'}</div><h2>${mine ? mine.rank + '. místo' : 'Konec hry'}</h2>
       ${mine ? `<p>${mine.goalEmoji} <b>${mine.goalName}</b>: ${esc(mine.goalDesc)}</p><p class="${mine.goalMet ? 'okc' : 'noc'}">${mine.goalMet ? '✅ Tajný cíl splněn!' : '❌ Tajný cíl nesplněn.'}</p><p>Čisté jmění: <b>${kc(mine.net)}</b></p>` : ''}</div>
       ${(S.awards || []).length ? `<div class="card"><h3>🏅 Ocenění</h3>${S.awards.map(a => `<div class="mrow">${a.emoji} <span><b>${a.title}</b><br><span class="${a.name === S.me.name ? 'okc' : 'mut'}">${esc(a.name)}${a.name === S.me.name ? ' – to jsi ty! 🎉' : ''} · ${esc(a.detail)}</span></span></div>`).join('')}</div>` : ''}
-      <div class="card"><h3>Tvoje statistika</h3><p>✅ ${S.me.correct} správně · ❌ ${S.me.wrong} chyb · vydělal/a jsi ${kc(S.me.earned)}</p>${this.myTopics()}</div>
+      <div class="stat3"><div><b>${S.me.correct}</b><small>✅ správně</small></div><div><b>${S.me.wrong}</b><small>❌ chyb</small></div><div><b>${kc(S.me.earned)}</b><small>💰 vyděláno</small></div></div>${this.myTopics() ? `<div class="card">${this.myTopics()}</div>` : ''}
       <div class="card"><h3>Celkové pořadí</h3>${f.map(r => `<div class="brow ${r.teamId === S.team.id ? 'me' : ''}"><span>${medal[r.rank - 1] || r.rank + '.'}</span><span>${r.emoji} ${esc(r.name)}<small>${r.goalEmoji} ${r.goalName} ${r.goalMet ? '✅' : '❌'}</small></span><b>${kc(r.net)}</b></div>`).join('')}</div>`;
   },
 

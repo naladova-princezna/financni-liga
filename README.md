@@ -106,3 +106,10 @@ V `engine.js`: `EVENTS` (události), `ASSETS` (podniky, výnosy a rizika), `BASE
 - Rozhodování na telefonu: nahoře vždy vidět hotovost, pak jen **tvoje oblast** (ostatní role jsou sbalené a jde u nich jen „💬 Navrhnout“), kratší popisy, méně tlačítek.
 - Plochý, klidný vzhled: méně rámečků a ozdob, limetková jen pro peníze a hlavní akci, zašedlé nedostupné akce.
 - Úvodní stránka zkrácena na to podstatné (hlavní akce, 4 kroky, 3 přínosy).
+
+### Pro těkavou pozornost – 7. kolo
+- **Okamžitá odměna:** správná odpověď = velké ✓, částka a výbuch mincí; chyba = zatřesení a červené −. Série ukazují tři plamínkové body.
+- **Méně čtení:** výběr obtížnosti jsou tři barevné dlaždice s jedinou číslicí; událost je obří ikona a dlaždice čísel; podniky jsou dlaždice s výnosem a „semafory“ rizika; vysvětlení řešení je schované za „💡 Proč?“.
+- **Plynulost:** „Další úloha“ je jedno velké tlačítko (stejná obtížnost), po chybě krátké odpočítávání místo hlášky. Tenký pruh času nahoře se zbarví do červena.
+- **Projektor:** kruhový časovač a **závodní dráha** týmů místo odstavce textu; vyúčtování roku je jedno velké ▲/▼ a sloupcový žebříček; na konci padá konfeti.
+- **Opravy:** týmy už nemají stejné zvíře, číslo „1 340“ se čte s mezerou.
