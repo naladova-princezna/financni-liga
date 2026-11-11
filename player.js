@@ -21,7 +21,7 @@ const Player = {
     this.token = LS.get('fl_tok_' + code) || (Math.random().toString(36).slice(2) + Date.now().toString(36));
     LS.set('fl_tok_' + code, this.token);
     this.name = LS.get('fl_name') || '';
-    document.addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b) this.onClick(b); });
+    document.addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b) { this._userAct = Date.now(); this.onClick(b); } });
     document.addEventListener('keydown', e => {
       if (e.key !== 'Enter') return;
       const id = e.target && e.target.id;
@@ -139,7 +139,7 @@ const Player = {
     bn.innerHTML = msg ? `<div class="banner">${esc(msg)}</div>` : '';
     if (this.S.phase === 'final' && !this._rained) { this._rained = true; const mine = (this.S.final || []).find(r => r.teamId === (this.S.team && this.S.team.id)); if (!mine || mine.rank <= 3) this.rain(); }
     const fk = this.S.res ? this.S.me.correct + ':' + this.S.me.wrong + ':' + this.S.res.id : ''; if (fk !== this._fxk) { this._fxk = fk; this.showWhy = false; this._fire = !!fk; }
-    const sig = this.sig(); if (sig !== this._sig) { this._sig = sig; const m = $('#ph-main'); m.innerHTML = this.mainHtml(); m.scrollTop = 0; if (this.tab === 'game' && this.S.task && this.S.task.type === 'num') setTimeout(() => { const i = $('#numIn'); i && i.focus(); }, 80); }
+    const sig = this.sig(); if (sig !== this._sig) { this._sig = sig; const m = $('#ph-main'); m.innerHTML = this.mainHtml(); m.scrollTop = 0; if (this.tab === 'game' && this.S.task && this.S.task.type === 'num' && this._focTask !== this.S.task.id && Date.now() - (this._userAct || 0) < 1500) { this._focTask = this.S.task.id; setTimeout(() => { const i = $('#numIn'); i && i.focus(); }, 80); } }
   },
   sig() {
     const S = this.S, t = S.team; const base = this.tab + '|' + S.phase + '|' + S.year + '|' + (S.event ? S.event.id : '');
@@ -148,7 +148,7 @@ const Player = {
     if (!t) return base + (this.ui.creating ? '|create' : JSON.stringify(S.teams));
     switch (S.phase) {
       case 'lobby': return base + JSON.stringify(S.teams);
-      case 'work': return base + '|' + !!S.paused + '|' + S.diffs + '|' + S.teams.map(x => x.net) + '|' + (S.task ? S.task.id : '-') + '|' + (S.res ? S.res.id : '-') + '|' + this.showWhy + '|' + S.me.diff + '|' + t.train;
+      case 'work': return base + '|' + !!S.paused + '|' + S.diffs + '|' + (S.task ? '' : S.teams.map(x => x.net)) + '|' + (S.task ? S.task.id : '-') + '|' + (S.res ? S.res.id : '-') + '|' + this.showWhy + '|' + S.me.diff + '|' + t.train;
       case 'decide': return base + JSON.stringify([this.openSecs, t.money, t.savings, t.loan, t.assets, t.train, t.insured, S.me.role, t.members.length, t.sugg, t.log.length, t.ready]);
       case 'result': return base + JSON.stringify([t.last, S.teams.map(x => x.net), this.showWhy]);
       case 'event': return base + '|' + (LS.get('fl_help_event') || this.helped.event ? 1 : 0);
